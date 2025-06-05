@@ -24,11 +24,14 @@
  * IN THE SOFTWARE.
  */
 
+
 #ifndef PLUGIN_ACELP_H
 #define PLUGIN_ACELP_H
 
 #include "DistrhoPlugin.hpp"
+#include "DistrhoPluginInfo.h"
 #include "CParamSmooth.hpp"
+#include "DSP.hpp"
 
 START_NAMESPACE_DISTRHO
 
@@ -50,12 +53,9 @@ START_NAMESPACE_DISTRHO
 
 // -----------------------------------------------------------------------
 
+
 class PluginACELP : public Plugin {
 public:
-    enum Parameters {
-        paramGain = 0,
-        paramCount
-    };
 
     PluginACELP();
 
@@ -66,11 +66,11 @@ protected:
     // Information
 
     const char* getLabel() const noexcept override {
-        return "ACELP";
+        return "Algebraic-Chee-Excitation";
     }
 
     const char* getDescription() const override {
-        return "ACELP";
+        return "Algebraic-Chee-Excitation";
     }
 
     const char* getMaker() const noexcept override {
@@ -116,12 +116,22 @@ protected:
 
     // Optional callback to inform the plugin about a sample rate change.
     void sampleRateChanged(double newSampleRate) override;
+    /**
+      Get the value of an internal state.
+      The host may call this function from any non-realtime context.
+    */
+    // String getState(const char* key) const override;
 
+    /**
+      Change an internal state.
+    */
+    void setState(const char* key, const char* value) override;
+    
     // -------------------------------------------------------------------
     // Process
 
+    void deactivate() override;
     void activate() override;
-
     void run(const float**, float** outputs, uint32_t frames,
              const MidiEvent* midiEvents, uint32_t midiEventCount) override;
 
@@ -129,31 +139,32 @@ protected:
     // -------------------------------------------------------------------
 
 private:
-    float           fParams[paramCount];
-    double          fSampleRate;
-    float           gain;
-    CParamSmooth    *smooth_gain;
+    int midiEnergyMap[255];
+
+    CheetahDSP dsp;
+    int bank;
+    int preset;
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginACELP)
 };
 
-struct Preset {
-    const char* name;
-    float params[PluginACELP::paramCount];
-};
+// struct Preset {
+//     const char* name;
+//     float params[PluginACELP::paramCount];
+// };
 
-const Preset factoryPresets[] = {
-    {
-        "Unity Gain",
-        {0.0f}
-    }
-    //,{
-    //    "Another preset",  // preset name
-    //    {-14.0f, ...}      // array of presetCount float param values
-    //}
-};
+// const Preset factoryPresets[] = {
+//     {
+//         "Unity Gain",
+//         {0.0f}
+//     }
+//     //,{
+//     //    "Another preset",  // preset name
+//     //    {-14.0f, ...}      // array of presetCount float param values
+//     //}
+// };
 
-const uint presetCount = sizeof(factoryPresets) / sizeof(Preset);
+// const uint presetCount = sizeof(factoryPresets) / sizeof(Preset);
 
 // -----------------------------------------------------------------------
 

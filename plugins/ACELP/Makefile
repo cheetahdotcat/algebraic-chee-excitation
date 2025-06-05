@@ -7,15 +7,15 @@
 # --------------------------------------------------------------
 # Project name, used for binaries
 
-NAME = acelp
+NAME = algebraic-chee-excitation
 
 # --------------------------------------------------------------
 # Plugin types to build
 
-BUILD_LV2 ?= true
+BUILD_LV2 ?= false
 BUILD_VST2 ?= true
 BUILD_VST3 ?= true
-BUILD_CLAP ?= true
+BUILD_CLAP ?= false
 BUILD_JACK ?= true
 BUILD_DSSI ?= false
 BUILD_LADSPA ?= false
@@ -23,17 +23,38 @@ BUILD_LADSPA ?= false
 # --------------------------------------------------------------
 # Files to build
 
-FILES_DSP = \
+FILES_COMMON  = DSP.cpp \
+	../../common/kiss_fft/kiss_fft.c \
+	../../common/kiss_fft/kiss_fftr.c \
+	ringbuffer.c \
+	codec/sub_sc_d.c		codec/sub_dsp.c \
+	codec/ccod_tet.c		codec/cdec_tet.c	\
+	codec/sub_cccd.c	\
+	codec/scod_tetp.c		codec/sdec_tetp.c	\
+	codec/fbas_tet.c		codec/fexp_tet.c	\
+	codec/fmat_tet.c		codec/tetra_op.c	\
+
+FILES_DSP = $(FILES_COMMON) \
 	PluginACELP.cpp
 
-FILES_UI = \
-	UIACELP.cpp
+FILES_UI  = $(FILES_COMMON) \
+	../../common/kiss_fft/kiss_fft.c \
+	CheeExcitationArtwork.cpp \
+	DistrhoUICheeExcitation.cpp \
+	../../common/Spectrogram.cpp \
+	../../common/Selection.cpp \
+	../../common/Bitstream_Vera_Sans_Regular.cpp
+# TODO: move selection to common!!
 
 # --------------------------------------------------------------
 # Do some magic
 
-UI_TYPE = opengl
-include ../../dpf/Makefile.plugins.mk
+SKIP_NATIVE_AUDIO_FALLBACK = true
+USE_FILE_BROWSER = false
+# Meeow
+UI_TYPE = generic
+CXXFLAGS += -lspeexdsp -lpthread
+include 	../../dpf/Makefile.plugins.mk
 
 # --------------------------------------------------------------
 # Enable all selected plugin types
