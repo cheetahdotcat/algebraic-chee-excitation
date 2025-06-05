@@ -15,6 +15,7 @@
  */
 
 #include "math.h"
+#include "corrupt.hpp"
 
 #include "DistrhoPlugin.hpp"
 #include "DistrhoPluginInfo.h"
@@ -22,8 +23,6 @@
 
 #pragma region "mein kram"
 
-#include "codec/channel.h"
-#include "codec/source.h"
 Word16 encoder_last_ener_pit;
 Word16 encoder_last_ener_cod;
 Word16 sdec_last_ener_pit;
@@ -88,7 +87,7 @@ Word16 decoder_bfi2 = 0; /* Reset Bad Frame Indicator :
 Word16 decoder_Reordered_array[286];		 /* 2 frames vocoder + 8 + 4 */
 Word16 decoder_Interleaved_coded_array[432]; /*time-slot length at 7.2 kb/s*/
 Word16 decoder_Coded_array[432];
-
+//
 int speex_err;
 void convert_buffer_int16_to_float(Word16 *in, float *out, size_t n) {
     for (size_t i = 0; i < n; i++) {
@@ -103,7 +102,7 @@ void convert_buffer_float_to_int16(float *in, Word16 *out, size_t n) {
         out[i] = (Word16)(x * 32000.0f); //32767.0f);
     }
 }
-
+//
 void print_float_hex(const float *data, int len) {
     for (int i = 0; i < len; ++i) {
         uint32_t hex;
@@ -118,7 +117,7 @@ void print_word16_hex(const Word16 *data, int len) {
         if ((i + 1) % 32 == 0) DEBUG_PRINTF("\n"); // optional: newline every 8 entries
     }
 }
-
+//
 
 
 #define ACELP_DUAL_CHAN_FRAME_SIZE 432 // 60ms @ 8kHz
@@ -130,83 +129,6 @@ void print_word16_hex(const Word16 *data, int len) {
 #define DOWNSAMPLE_RATIO 6
 #define UPSAMPLED_FRAME_SIZE (ACELP_FRAME_SIZE * UPSAMPLE_RATIO)
 Word16 samples[ACELP_DUAL_CHAN_AUDIO_SIZE];
-
-#pragma region "Corruption Methods"
-void bit_desync_shift_left_Word16(Word16 *array, int len) {
-    uint16_t carry = 0;
-    for (int i = 0; i < len; i++) {
-        uint16_t val = (uint16_t)array[i];            // Treat signed as unsigned for bit ops
-        uint16_t new_carry = (val & 0x8000) >> 15;    // Extract MSB before shift
-        val = (val << 1) | carry;                      // Shift left + insert carry bit from prev element
-        array[i] = (Word16)val;                        // Store back as signed Word16
-        carry = new_carry;                             // Update carry for next word
-    }
-}
-void burst_error(uint8_t *frame, int len, int burst_len) {
-    int start = rand() % (len * 8 - burst_len); // random bit start
-    for (int i = 0; i < burst_len; i++) {
-        int bit_pos = start + i;
-        int byte_idx = bit_pos / 8;
-        int bit_idx = bit_pos % 8;
-        frame[byte_idx] ^= (1 << bit_idx);
-    }
-}
-void corrupt_by_overflow(short *acelp_array, int len) {
-    for (int i = 0; i <= len; i++) {  // Off-by-one error, should be < len
-        acelp_array[i] = i;  // Writes one element past end
-    }
-}
-
-void corrupt_by_wrong_interleave(short *coded_array, int len) {
-    for (int i = 0; i < len; i++) {
-        int target_index = (i * 2) % len;  // If len is odd, this may cause issues
-        coded_array[target_index] = i;
-    }
-}
-void random_bit_desync_Word16(Word16 *array, int len, int max_shift_bits, int flip_probability_percent) {
-    // max_shift_bits: max number of bits to shift left or right per element (e.g., 1 or 2)
-    // flip_probability_percent: chance (0-100) to flip a random bit in the element
-    
-    for (int i = 0; i < len; i++) {
-        uint16_t val = (uint16_t)array[i];
-        int r2 = rand() % 100;
-		if (r2 < 4) continue;
-        // Randomly decide shift direction: -1=right, 0=no shift, 1=left
-        int shift_dir = (rand() % 3) - 1;
-
-        // Random shift amount between 0 and max_shift_bits
-        int shift_amt = rand() % (max_shift_bits + 1);
-
-        if (shift_dir == 1) {
-            val = val << shift_amt;
-        } else if (shift_dir == -1) {
-            val = val >> shift_amt;
-        }
-
-        // Random bit flip based on probability
-        int r = rand() % 100;
-        if (r < flip_probability_percent) {
-            int bit_to_flip = rand() % 16;
-            val ^= (1 << bit_to_flip);
-        }
-
-        array[i] = (Word16)val;
-    }
-}
-void corrupt_bit_flips_Word16(Word16 *frame, int len, int bit_flip_percent) {
-    for (int i = 0; i < len; i++) {
-        uint16_t val = (uint16_t)frame[i];
-        for (int b = 0; b < 16; b++) {
-            int r = rand() % 100;
-            if (r < bit_flip_percent) {
-                val ^= (1 << b);
-            }
-        }
-        frame[i] = (Word16)val;
-    }
-}
-#pragma endregion
-
 
 void upsample_6x(float *in, float *out, size_t out_len) {
     size_t num_input_samples = out_len / UPSAMPLE_RATIO;
@@ -403,33 +325,11 @@ void hex_to_word16_array(const char *hex_str, Word16 *out, size_t max_out_len) {
 // Increase the late level by approx 8dB
 #define LATE_GAIN 2.5f
 
-CheetahDSP::CheetahDSP(double sampleRate): stopThread(false), threadRunning(false) {
-//   input_lpf_0.mute();
-//   input_lpf_1.mute();
-//   input_hpf_0.mute();
-//   input_hpf_1.mute();
-
-//   early.loadPresetReflection(FV3_EARLYREF_PRESET_1);
-//   early.setMuteOnChange(false);
-//   early.setdryr(0); // mute dry signal
-//   early.setwet(0); // 0dB
-//   early.setwidth(0.8);
-//   early.setLRDelay(0.3);
-//   early.setLRCrossApFreq(750, 4);
-//   early.setDiffusionApFreq(150, 4);
-//   early.setSampleRate(sampleRate);
-//   early_send = 0.20;
-
-//   late.setMuteOnChange(false);
-//   late.setwet(0); // 0dB
-//   late.setdryr(0); // mute dry signal
-//   late.setwidth(1.0);
-//   late.setSampleRate(sampleRate);
-
-//   for (uint32_t param = 0; param < paramCount; param++) {
-//     newParams[param] = banks[DEFAULT_BANK].presets[DEFAULT_PRESET].params[param];
-//     oldParams[param] = -1.0;
-//   }
+CheetahDSP::CheetahDSP(double sampleRate): stopThread(false), threadRunning(false), callback(nullptr) {
+  for (uint32_t param = 0; param < paramCount; param++) {
+    newParams[param] = banks[DEFAULT_BANK].presets[DEFAULT_PRESET].params[param];
+    oldParams[param] = -1.0;
+  }
     finalized = false;
 	encoded_frame_queue = NULL;
 	ring2 = NULL;
@@ -519,9 +419,45 @@ void CheetahDSP::setParameterValue(uint32_t index, float value) {
   }
 }
 
+void CheetahDSP::corrupt_audio(Word16 *data) {
+	float pVolume = newParams[paramVolume];
+	float pCorrMode = newParams[paramCorruptionMode];
+	float pCorrInt = newParams[paramCorruptionIntensity];
+	float pCorrMag = newParams[paramCorruptionMagnitude];
+	float pCodecType = newParams[paramCodecType];
+	{ // Intermediary Layer
+		if (round(pCodecType == 1)) {
+			if (round(pCorrMode) == 1) {
+				corrupt_by_wrong_interleave(data, 432);
+			}
+			if (round(pCorrMode) == 2) {
+				corrupt_by_overflow(data, 432);
+			}
+			if (round(pCorrMode) == 3) {
+				bit_desync_shift_left_Word16(encoder_Interleaved_coded_array, 432);
+				// int r = rand() % 100;
+				// if (r < midiEnergyMap[70]) {
+				// 	// allowFrameWrite = 0;
+				// }
+			} else {
+				// allowFrameWrite = allowFrameWrite || 1;
+			}
+			if (round(pCorrMode) == 4) {
+				random_bit_desync_Word16(data, 432, pCorrInt, pCorrMag);
+			}
+			if (round(pCorrMode) == 5) {
+				corrupt_bit_flips_Word16(data, 432, pCorrInt);
+				// random_bit_desync_Word16(encoder_Interleaved_coded_array, 432, midiEnergyMap[70], midiEnergyMap[65]);
+			}
+			if (round(pCorrMode) == 6) {
+				encoder_first_pass = true;
+				decoder_first_pass = true;
+			}
+		}
+	}
+}
 void CheetahDSP::process_buff_ring1_audio(size_t nframes) {
 	const int samples48kSize = ACELP_DUAL_CHAN_AUDIO_SIZE * 6;
-	// const samples8k = ACELP_DUAL_CHAN_AUDIO_SIZE;
 
 	float samples48k[samples48kSize];
 	float down_out[ACELP_DUAL_CHAN_AUDIO_SIZE];
@@ -534,85 +470,21 @@ void CheetahDSP::process_buff_ring1_audio(size_t nframes) {
 		cat_ringbuffer_read(ring_48k_incoming, (char *)samples48k, samples48kSize*sizeof(float));
 		// DEBUG_PRINTF("2880 48k samples available for encoding, output 480 8k samples, output 432byte channel-frame\n");
 		// 8kHz float ^
-		// Word16 samplesWord16[samples_available];
-		// convert_buffer_float_to_int16(up_in, samplesWord16, samples_available);
-		// process_tetra(samplesWord16, samples_available);
-		// convert_buffer_int16_to_float(samplesWord16, up_in, samples_available);
-		// 8kHz float V
-		// jack_ringbuffer_write(ring2, (char *)down_in, samples_available * sizeof(jack_default_audio_sample_t));
-
-		// jack_default_audio_sample_t up_in[MAX_FRAME_SAMPLES / 6];
-		// jack_default_audio_sample_t up_out[MAX_FRAME_SAMPLES]; // upsampled buffer
-
 		// --- Step 1: Downsample input ---
 		spx_uint32_t in_len = samples48kSize;
 		spx_uint32_t out_len = ACELP_DUAL_CHAN_AUDIO_SIZE;
-
-		// memcpy(down_in, in, sizeof(jack_default_audio_sample_t) * in_len);
 		speex_resampler_process_float(resampler_down, 0, samples48k, &in_len, down_out, &out_len);
 		static Word16 channelFrameOutput[ACELP_DUAL_CHAN_FRAME_SIZE];
 		// downsample_6x(samples48k, down_out, samples48kSize);
 		// print_float_hex(down_out, 480);
 		encode_acelp(down_out, channelFrameOutput);
 		// print_word16_hex(channelFrameOutput, 432);
+		corrupt_audio(channelFrameOutput);
+		if (callback != nullptr) {
+			callback->onVocoderFrame(channelFrameOutput);
+		}
 		
-		// { // Intermediary Layer
-		// 	for (int midiKey = 0; midiKey < 255; midiKey++) {
-		// 		if (midiEnergyMap[midiKey] > 0) {
-		// 			channelFrameOutput[ midiEnergyMap[midiKey] ] |= 0xAAAA;
-		// 			DEBUG_PRINTF("applying corruption %d\n", midiKey);
-		// 		}
-		// 	}
-		// 	if (midiEnergyMap[62] > 0) {
-		// 		corrupt_by_wrong_interleave(channelFrameOutput, 432);
-		// 	}
-		// 	if (midiEnergyMap[63] > 0) {
-		// 		corrupt_by_overflow(channelFrameOutput, 432);
-		// 	}
-		// 	if (midiEnergyMap[64] > 0) {
-		// 		// bit_desync_shift_left_Word16(encoder_Interleaved_coded_array, 432);
-		// 		int r = rand() % 100;
-		// 		if (r < midiEnergyMap[70]) {
-		// 			// allowFrameWrite = 0;
-		// 		}
-		// 	} else {
-		// 		// allowFrameWrite = allowFrameWrite || 1;
-		// 	}
-		// 	if (midiEnergyMap[65] > 0) {
-		// 		random_bit_desync_Word16(channelFrameOutput, 432, midiEnergyMap[70], midiEnergyMap[65]);
-		// 	}
-		// 	if (midiEnergyMap[65] > 0) {
-		// 		corrupt_bit_flips_Word16(channelFrameOutput, 432, midiEnergyMap[70]);
-		// 		// random_bit_desync_Word16(encoder_Interleaved_coded_array, 432, midiEnergyMap[70], midiEnergyMap[65]);
-		// 	}
-		// 	if (midiEnergyMap[66] > 0) {
-		// 		encoder_first_pass = true;
-		// 		decoder_first_pass = true;
-		// 	}
-		// }
         // print_word16_hex(channelFrameOutput, ACELP_DUAL_CHAN_FRAME_SIZE);
-		// if (midiEnergyMap[60] == 0 && allowFrameWrite == 1) { // Write
-		// 	FILE *mem_out = fmemopen(tetra_cache, sizeof(tetra_cache), "w");
-		// 	if (Write_Tetra_File(mem_out, encoder_Interleaved_coded_array) == -1) {
-		// 		fputs("Write failed\n", stderr);
-		// 		fDEBUG_PRINTF(stderr, "chanlcod: cannot write to output file %d\n", ++encoder_frame);
-		// 		return;
-		// 	}
-		// 	tetra_cache_size = ftell(mem_out);
-		// 	fclose(mem_out);
-		// }
-		// if (midiEnergyMap[61] == 0) { // Read
-		// 	FILE *mem_in = fmemopen(tetra_cache, tetra_cache_size, "r");
-		// 	if (Read_Tetra_File(mem_in, decoder_Interleaved_coded_array) == -1) {
-		// 		fputs("Read failed\n", stderr);
-		// 		fputs("cdecoder: reached end of input_file", stderr);
-		// 		return;
-		// 	}
-		// 	fclose(mem_in);
-		// }
-
-
-		// print_word16_hex(channelFrameOutput, ACELP_DUAL_CHAN_FRAME_SIZE);
 		// Write downsampled to ring1
 		size_t space_needed = sizeof(Word16)*ACELP_DUAL_CHAN_FRAME_SIZE;
 		if (cat_ringbuffer_write_space(encoded_frame_queue) >= space_needed) {
@@ -620,28 +492,15 @@ void CheetahDSP::process_buff_ring1_audio(size_t nframes) {
 			// DEBUG_PRINTF("sending frame:\n");
 			// print_word16_hex(channelFrameOutput, 432);
 		}
-		// size_t wrote_bytes = jack_ringbuffer_write(encoded_frame_queue, (char *)channelFrameOutput, spaced_needed);
-		// DEBUG_PRINTF("wrote %d bytes to ringbuffer\n", wrote_bytes);
-		// Write downsampled to ring1
-		// jack_ringbuffer_write(ring1, (char *)down_out, out_len * sizeof(jack_default_audio_sample_t));
-
-		// // --- Step 1: Downsample input (48kHz → 8kHz) ---
-		// spx_uint32_t in_len = nframes;
-		// spx_uint32_t out_len = MAX_FRAME_SAMPLES;
-		//memcpy(&playback_frame, &channelFrameOutput, 432*2);
-		// print_word16_hex(playback_frame, 432*2);
-		// memcpy(down_in, in, sizeof(jack_default_audio_sample_t) * in_len);
 		available = cat_ringbuffer_read_space(ring_48k_incoming);
     	samples_available = available / sizeof(float);
 	}
 
 }
 void CheetahDSP::run(const float** inputs, float** outputs, uint32_t frames) {
-    // get the left and right audio inputs
     const float* const in = inputs[0];
-
-    // get the left and right audio outputs
     float* const out = outputs[0];
+	//
 	cat_ringbuffer_write(ring_48k_incoming, (char *)in, frames * sizeof(float));
 	process_buff_ring1_audio(frames);
 	// float monoOutput[frames];
@@ -649,7 +508,7 @@ void CheetahDSP::run(const float** inputs, float** outputs, uint32_t frames) {
     size_t to_read = sizeof(float) * frames;
     if (cat_ringbuffer_read_space(pcm_output_buffer) >= to_read) {
         cat_ringbuffer_read(pcm_output_buffer, (char *)out, to_read);
-		DEBUG_PRINTF("output ringbuffer serving %lu samples\n", frames);
+		// DEBUG_PRINTF("output ringbuffer serving %lu samples\n", frames);
     } else {
         memset(out, 0, to_read); // underrun fallback
     }
@@ -751,6 +610,9 @@ void CheetahDSP::run(const float** inputs, float** outputs, uint32_t frames) {
   }*/
 }
 
+void CheetahDSP::setCallback(Callback* newCallback) noexcept {
+    callback = newCallback;
+}
 void CheetahDSP::threadFunction() {
 	DEBUG_PRINTF("entering background thread\n");
 	threadRunning.store(true, std::memory_order_release);
@@ -786,7 +648,6 @@ void CheetahDSP::threadFunction() {
         	std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }	
-		
 
         // Decode and upsample
 		// DEBUG_PRINTF("received frame:\n");
@@ -798,7 +659,6 @@ void CheetahDSP::threadFunction() {
 		spx_uint32_t out_len = ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO;
 		// memcpy(down_in, in, sizeof(float) * in_len);
 		speex_resampler_process_float(resampler_up, 0, decode_buf, &in_len, upsample_buf, &out_len);
-
 
         // Wait until there's enough space to write
         size_t bytes_needed = sizeof(float) * ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO;
@@ -819,28 +679,11 @@ void CheetahDSP::threadFunction() {
 
 void CheetahDSP::sampleRateChanged(double newSampleRate) {
   sampleRate = newSampleRate;
-//   early.setSampleRate(newSampleRate);
-//   late.setSampleRate(newSampleRate);
-//   setInputLPF(newParams[paramInHighCut]);
-//   setInputHPF(newParams[paramInLowCut]);
 }
 
 void CheetahDSP::mute() {
-//   early.mute();
-//   late.mute();
 }
 
-// void CheetahDSP::setInputLPF(float freq) {
-// //   if (freq < 0) {
-// //     freq = 0;
-// //   } else if (freq > sampleRate / 2.0) {
-// //     freq = sampleRate / 2.0;
-// //   }
-// //   input_lpf_0.setLPF_BW(freq, sampleRate);
-// //   input_lpf_1.setLPF_BW(freq, sampleRate);
-// }
-
-// void CheetahDSP::setInputHPF(float freq) {
 //   if (freq < 0) {
 //     freq = 0;
 //   } else if (freq > sampleRate / 2.0) {

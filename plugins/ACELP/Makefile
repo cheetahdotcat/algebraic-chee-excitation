@@ -26,7 +26,7 @@ BUILD_LADSPA ?= false
 FILES_COMMON  = DSP.cpp \
 	../../common/kiss_fft/kiss_fft.c \
 	../../common/kiss_fft/kiss_fftr.c \
-	ringbuffer.c \
+	ringbuffer.c	corrupt.cpp	\
 	codec/sub_sc_d.c		codec/sub_dsp.c \
 	codec/ccod_tet.c		codec/cdec_tet.c	\
 	codec/sub_cccd.c	\

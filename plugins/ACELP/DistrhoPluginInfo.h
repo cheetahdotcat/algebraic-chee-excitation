@@ -49,6 +49,7 @@
 #define DISTRHO_PLUGIN_NUM_INPUTS       1
 #define DISTRHO_PLUGIN_NUM_OUTPUTS      1
 #define DISTRHO_PLUGIN_WANT_STATE       1
+#define DISTRHO_PLUGIN_WANT_FULL_STATE 1
 #define DISTRHO_PLUGIN_WANT_TIMEPOS     0
 #define DISTRHO_PLUGIN_WANT_PROGRAMS    1
 #define DISTRHO_PLUGIN_WANT_MIDI_INPUT  1
@@ -80,12 +81,12 @@ enum Parameters
 
 static const int paramCount = 6;
 static const Param PARAMS[paramCount] = {
-  {paramVolume,        "Volume",   "volume",    0.0f,   100.0f,   "%"},
-  {paramCodecType,      "Early Level", "early_level",  0.0f,   100.0f,   "%"},
-  {paramCodecBitrate,       "Late Level",  "late_level",   0.0f,   100.0f,   "%"},
-  {paramCorruptionMode,       "Size",        "size",        10.0f,    60.0f,   "m"},
-  {paramCorruptionIntensity,      "Width",       "width",       50.0f,   150.0f,   "%"},
-  {paramCorruptionMagnitude,   "Predelay",    "delay",        0.0f,   100.0f,  "ms"}
+  {paramVolume,               "Volume",               "volume",         0.0f,   100.0f,   "%"},
+  {paramCodecType,            "Codec Type",           "codec_type",     0.0f,   4.0f,     "C"},
+  {paramCodecBitrate,         "Codec Bitrate",        "codec_bitrate",  0.0f,   100.0f,   "%"},
+  {paramCorruptionMode,       "Corruption Mode",      "corr_mode",      0.0f,    60.0f,   "M"},
+  {paramCorruptionIntensity,  "Corruption Intensity", "corr_int",       0.0f,   150.0f,   "bits"},
+  {paramCorruptionMagnitude,  "Corruption Magnitude", "corr_mag",       0.0f,   100.0f,   "bits"}
   // {paramDiffuse,    "Diffuse",     "diffuse",      0.0f,   100.0f,   "%"},
   // {paramLowCut,     "Low Cut",     "low_cut",      0.0f,   200.0f,  "Hz"},
   // {paramLowXover,   "Low Cross",   "low_xo",     200.0f,  1200.0f,  "Hz"},
@@ -100,7 +101,7 @@ static const Param PARAMS[paramCount] = {
   // {paramModulation, "Modulation",  "modulation",   0.0f,   100.0f,   "%"}
 };
 
-static const int NUM_BANKS = 5;
+static const int NUM_BANKS = 2;
 static const int PRESETS_PER_BANK = 5;
 
 typedef struct {
@@ -116,16 +117,25 @@ typedef struct {
 static const Bank banks[NUM_BANKS] = {
   {
     "Test", {
-      {"Large Bright Hall",      { 80.0,  10.0, 20.0, 40.0, 100.0,  20.0 }},
-      {"Large Clear Hall",       { 80.0,  10.0, 20.0, 40.0, 100.0,  12.0 }},
-      {"Large Dark Hall",        { 80.0,  10.0, 20.0, 40.0, 100.0,  20.0 }},
-      {"Large Vocal Hall",       { 80.0,  10.0, 20.0, 40.0,  80.0,  12.0 }},
-      {"Great Hall",             { 80.0,  10.0, 20.0, 50.0,  90.0,  20.0 }},
-    }
+      {"Large Bright Hall",       { 80.0,  10.0, 20.0, 40.0, 100.0,  20.0 }},
+      {"Default",                { 80.0,  0.0, 0.0, 0.0, 0.0,  0.0 }},
+      {"Large Dark Hall",         { 80.0,  10.0, 20.0, 40.0, 100.0,  20.0 }},
+      {"Large Vocal Hall",        { 80.0,  10.0, 20.0, 40.0,  80.0,  12.0 }},
+      {"Great Hall",              { 80.0,  10.0, 20.0, 50.0,  90.0,  20.0 }}
+    },
+  },
+  {
+    "Test 2", {
+      {"Large Bright Hall",       { 80.0,  10.0, 20.0, 40.0, 100.0,  20.0 }},
+      {"Default",                { 80.0,  10.0, 20.0, 40.0, 100.0,  12.0 }},
+      {"Large Dark Hall",         { 80.0,  10.0, 20.0, 40.0, 100.0,  20.0 }},
+      {"Large Vocal Hall",        { 80.0,  10.0, 20.0, 40.0,  80.0,  12.0 }},
+      {"Great Hall",              { 80.0,  10.0, 20.0, 50.0,  90.0,  20.0 }}
+    },
   }
 };
 
-static const int DEFAULT_BANK   = 0; // Small Halls
-static const int DEFAULT_PRESET = 1; // Second preset in each bank
+static const int DEFAULT_BANK   = 0; // Test
+static const int DEFAULT_PRESET = 1; // Default
 
 #endif // DISTRHO_PLUGIN_INFO_H

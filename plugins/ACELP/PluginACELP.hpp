@@ -54,7 +54,7 @@ START_NAMESPACE_DISTRHO
 // -----------------------------------------------------------------------
 
 
-class PluginACELP : public Plugin {
+class PluginACELP : public Plugin, CheetahDSP::Callback {
 public:
 
     PluginACELP();
@@ -95,7 +95,7 @@ protected:
     //
     // Get a proper plugin UID and fill it in here!
     int64_t getUniqueId() const noexcept override {
-        return d_cconst('a', 'b', 'c', 'd');
+        return d_cconst('c', 'h', 'e', 'e');
     }
 
     // -------------------------------------------------------------------
@@ -125,6 +125,8 @@ protected:
     /**
       Change an internal state.
     */
+    void initState(uint32_t index, State& state) override;
+    String getState(const char* key) const override;
     void setState(const char* key, const char* value) override;
     
     // -------------------------------------------------------------------
@@ -135,6 +137,7 @@ protected:
     void run(const float**, float** outputs, uint32_t frames,
              const MidiEvent* midiEvents, uint32_t midiEventCount) override;
 
+    void onVocoderFrame(Word16 *frame) override;
 
     // -------------------------------------------------------------------
 
@@ -144,6 +147,8 @@ private:
     CheetahDSP dsp;
     int bank;
     int preset;
+
+    char hex_string[128];
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginACELP)
 };

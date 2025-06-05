@@ -25,6 +25,7 @@
  */
 
 #include "PluginACELP.hpp"
+#include "corrupt.hpp"
 #include "debug.h"
 
 // #include <samplerate.h>
@@ -47,8 +48,10 @@ PluginACELP::PluginACELP()
 		initParameter(p, param);
 		setParameterValue(p, param.ranges.def);
 	}
-    // reset
-    deactivate();
+  for (int i = 0; i < 128; i++) hex_string[i] = 0;
+  dsp.setCallback(this);
+  // reset
+  deactivate();
 }
 
 PluginACELP::~PluginACELP() {
@@ -105,22 +108,90 @@ void PluginACELP::setParameterValue(uint32_t index, float value) {
   dsp.setParameterValue(index, value);
 }
 
-void PluginACELP::setState(const char* key, const char* value) {
-  if (std::strcmp(key, "preset") == 0) {
-    for (int b = 0; b < NUM_BANKS; b++) {
-      for (int p = 0; p < PRESETS_PER_BANK; p++) {
-        if (std::strcmp(value, banks[b].presets[p].name) == 0) {
-          bank = b;
-          preset = p;
-
-          // backward compatibility
-        //   setParameterValue(paramDecay, banks[b].presets[p].params[paramDecay]);
-        }
-      }
-    }
+void PluginACELP::initState(uint32_t index, State& state) {
+  switch (index) {
+    case 0:
+        state.key = "top-left";
+        state.label = "Top Left";
+        break;
+    case 1:
+        state.key = "top-center";
+        state.label = "Top Center";
+        break;
+    case 2:
+        state.key = "top-right";
+        state.label = "Top Right";
+        break;
+    case 3:
+        state.key = "middle-left";
+        state.label = "Middle Left";
+        break;
+    case 4:
+        state.key = "middle-center";
+        state.label = "Middle Center";
+        break;
+    case 5:
+        state.key = "middle-right";
+        state.label = "Middle Right";
+        break;
+    case 6:
+        state.key = "bottom-left";
+        state.label = "Bottom Left";
+        break;
+    case 7:
+        state.key = "bottom-center";
+        state.label = "Bottom Center";
+        break;
+    case 8:
+        state.key = "bottom-right";
+        state.label = "Bottom Right";
+        break;
   }
+  state.hints = kStateIsHostWritable;
+  state.defaultValue = "false";
+}
+void PluginACELP::setState(const char* key, const char* value) {
+  // if (std::strcmp(key, "preset") == 0) {
+  //   for (int b = 0; b < NUM_BANKS; b++) {
+  //     for (int p = 0; p < PRESETS_PER_BANK; p++) {
+  //       if (std::strcmp(value, banks[b].presets[p].name) == 0) {
+  //         bank = b;
+  //         preset = p;
+
+  //         // backward compatibility
+  //       //   setParameterValue(paramDecay, banks[b].presets[p].params[paramDecay]);
+  //       }
+  //     }
+  //   }
+  // }
 }
 
+String PluginACELP::getState(const char* key) const {
+    static const String sTrue ("true");
+    static const String sFalse("false");
+
+    // // check which block changed
+    // /**/ if (std::strcmp(key, "top-left") == 0)
+    //     return fParamGrid[0] ? sTrue : sFalse;
+    // else if (std::strcmp(key, "top-center") == 0)
+    //     return fParamGrid[1] ? sTrue : sFalse;
+    // else if (std::strcmp(key, "top-right") == 0)
+    //     return fParamGrid[2] ? sTrue : sFalse;
+    // else if (std::strcmp(key, "middle-left") == 0)
+    //     return fParamGrid[3] ? sTrue : sFalse;
+    // else if (std::strcmp(key, "middle-center") == 0)
+    //     return fParamGrid[4] ? sTrue : sFalse;
+    // else if (std::strcmp(key, "middle-right") == 0)
+    //     return fParamGrid[5] ? sTrue : sFalse;
+    // else if (std::strcmp(key, "bottom-left") == 0)
+    //     return fParamGrid[6] ? sTrue : sFalse;
+    // else if (std::strcmp(key, "bottom-center") == 0)
+    //     return fParamGrid[7] ? sTrue : sFalse;
+    // else if (std::strcmp(key, "bottom-right") == 0)
+    //     return fParamGrid[8] ? sTrue : sFalse;
+
+    return sFalse;
+}
 
 /**
   Load a program.
@@ -143,103 +214,101 @@ void PluginACELP::activate() {
 }
 void PluginACELP::deactivate()  {
 }
-// void PluginACELP::threadFunction() {
-// 	DEBUG_PRINTF("entering background thread\n");
-// 	threadRunning.store(true, std::memory_order_release);
-
-// 	Word16 playback_frame[ACELP_DUAL_CHAN_FRAME_SIZE];         // Temp buffer for each new frame
-// 	// Word16 playback_frame[ACELP_DUAL_CHAN_AUDIO_SIZE];         // TEST NEW!!
-//     Word16 last_good_frame[ACELP_DUAL_CHAN_AUDIO_SIZE] = { 0 }; // Backup of last valid frame
-// 	hex_to_word16_array(fuckFrame, last_good_frame, ACELP_DUAL_CHAN_FRAME_SIZE);
-// 	//
-//     float decode_buf[ACELP_DUAL_CHAN_AUDIO_SIZE];
-//     float upsample_buf[ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO];
-// 	//
-// 	int has_valid_frame = 1;
-// 	//
-//     while (!stopThread.load(std::memory_order_acquire)) {
-//         // Try to read a new encoded frame from the queue
-//         if (cat_ringbuffer_read_space(encoded_frame_queue) >= sizeof(playback_frame)) {
-//             // Read it
-//             //size_t read_bytes = 
-// 			cat_ringbuffer_read(encoded_frame_queue, (char *)playback_frame, sizeof(playback_frame));
-//             // DEBUG_PRINTF("RINGBUFFER ENCODEDFRAME QUEUE readbytes=%lu, size %d\n", read_bytes, sizeof(encoded_frame));
-// 			memcpy(&last_good_frame, &playback_frame, sizeof(playback_frame));
-// 			// print_word16_hex(encoded_frame, sizeof(encoded_frame));
-// 			// DEBUG_PRINTF("new nice frame came around");
-//             has_valid_frame = 1;
-//         } else if (has_valid_frame) {
-//             // No new frame: reuse the last good one
-// 			// DEBUG_PRINTF("reusing old frame");
-//             memcpy(&playback_frame, &last_good_frame, sizeof(playback_frame));
-//         } else {
-//             // No data available yet: silence output or skip
-//             // usleep(1000);
-//         	std::this_thread::sleep_for(std::chrono::milliseconds(5));
-//             continue;
-//         }	
-		
-
-//         // Decode and upsample
-// 		// DEBUG_PRINTF("received frame:\n");
-// 		// print_word16_hex(playback_frame, 432);
-//         decode_acelp(playback_frame, decode_buf);
-//         // upsample_6x(decode_buf, upsample_buf, ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO);
-// 		// --- Upsample 6x ---
-// 		spx_uint32_t in_len = ACELP_DUAL_CHAN_AUDIO_SIZE;
-// 		spx_uint32_t out_len = ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO;
-// 		// memcpy(down_in, in, sizeof(float) * in_len);
-// 		speex_resampler_process_float(resampler_up, 0, decode_buf, &in_len, upsample_buf, &out_len);
-
-
-//         // Wait until there's enough space to write
-//         size_t bytes_needed = sizeof(float) * ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO;
-//         while (!stopThread.load(std::memory_order_acquire) && cat_ringbuffer_write_space(pcm_output_buffer) < bytes_needed) {
-//         	std::this_thread::sleep_for(std::chrono::milliseconds(5));
-//         }
-
-//         // Write the samples to output buffer
-//         // size_t wrote_bytes = 
-// 		cat_ringbuffer_write(pcm_output_buffer, (char *)upsample_buf, bytes_needed);
-// 		// DEBUG_PRINTF("decoding to %d 48khz samples=%d bytes, wrote %d bytes\n", ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO, bytes_needed, wrote_bytes);
-// 	}
-// 	//
-// 	threadRunning.store(false, std::memory_order_release);
-// 	DEBUG_PRINTF("bg: leaving thread\n");
-// 	return;
-// }
-
-void PluginACELP::run(const float** inputs, float** outputs,
-                      uint32_t frames,
-                      const MidiEvent* midiEvents, uint32_t midiEventCount) {
+//
+void shorts_to_hex_string(const Word16 *shorts, size_t count, char *output) {
+    for (size_t i = 0; i < count; ++i) {
+        sprintf(output + i * 4, "%04X", (Word16)shorts[i]);
+    }
+    output[count * 4] = '\0';  // Null-terminate
+}
+// 432
+void PluginACELP::onVocoderFrame(Word16 *frame) {
+  // DEBUG_PRINTF("ONFRAME 1\n");
+  // shorts_to_hex_string(frame, 432, hex_string);
+  // DEBUG_PRINTF("ONFRAME 2\n");
+  // // updateStateValue("codec_frame", hex_string);
+  // DEBUG_PRINTF("ONFRAME 3\n");
+	float pVolume = dsp.getParameterValue(paramVolume);
+	float pCorrMode = dsp.getParameterValue(paramCorruptionMode);
+	float pCorrInt = dsp.getParameterValue(paramCorruptionIntensity);
+	float pCorrMag = dsp.getParameterValue(paramCorruptionMagnitude);
+	float pCodecType = dsp.getParameterValue(paramCodecType);
+  //
+  {
+    if (midiEnergyMap[60]>0) {
+      corrupt_by_wrong_interleave(frame, 432);
+    }
+    if (midiEnergyMap[61]>0) {
+      corrupt_by_overflow(frame, 432);
+    }
+    if (midiEnergyMap[62]>0) {
+      bit_desync_shift_left_Word16(frame, 23);
+      // int r = rand() % 100;
+      // if (r < midiEnergyMap[70]) {
+      // 	// allowFrameWrite = 0;
+      // }
+    } else {
+      // allowFrameWrite = allowFrameWrite || 1;
+    }
+    if (midiEnergyMap[63]>0) {
+      random_bit_desync_Word16(frame, 432, pCorrInt, pCorrMag);
+    }
+    if (midiEnergyMap[64]>0) {
+      corrupt_bit_flips_Word16(frame, 432, pCorrInt);
+      // random_bit_desync_Word16(encoder_Interleaved_coded_array, 432, midiEnergyMap[70], midiEnergyMap[65]);
+    }
+  }
+  //
+  for (int midiKey = 0; midiKey < 255; midiKey++) {
+    if (midiEnergyMap[midiKey] > 0) {
+      if (round(pCorrMode) == 1) {
+        frame[ midiKey ] = midiEnergyMap[midiKey];
+      }
+      if (round(pCorrMode) == 2) {
+        frame[ midiKey ] -= pCorrMag;
+      }
+      if (round(pCorrMode) == 3) {
+        frame[ midiKey ] += pCorrMag;
+      }
+      if (round(pCorrMode) == 4) {
+        frame[ midiKey ] *= pCorrMag;
+      }
+      if (round(pCorrMode) == 5) {
+        frame[ midiKey ] /= pCorrMag;
+      }
+      DEBUG_PRINTF("applying corruption %d\n", midiKey, midiEnergyMap[midiKey]);
+    }
+  }
+}
+void PluginACELP::run(const float** inputs, float** outputs, uint32_t frames, const MidiEvent* midiEvents, uint32_t midiEventCount) {
 	dsp.run(inputs, outputs, frames);
-	
-    for (int i = 0; i < midiEventCount; ++i) {
-        MidiEvent event = midiEvents[i];
-		uint8_t eventType = event.data[0];
-		uint8_t eventKey = event.data[1];
-		uint8_t eventParam = event.data[2];
-		switch (eventType) {
-			case 128: // release
-				midiEnergyMap[eventKey] = eventParam;
-				break;
-			case 144: // attack
-				midiEnergyMap[eventKey] = eventParam;
-				break;
-			case 176: // knob
-				midiEnergyMap[eventKey] = eventParam;
-				break;
-			case 129: // pad1
-				midiEnergyMap[eventKey] = eventParam;
-				break;
-			case 145: // pad2
-				midiEnergyMap[eventKey] = eventParam;
-				break;
-			case 209: // pad3
-				midiEnergyMap[eventKey] = eventParam;
-				break;
-		}			
-		DEBUG_PRINTF("midi %d %d %d\n", eventType, eventKey, eventParam);
+  for (int i = 0; i < midiEventCount; ++i) {
+    MidiEvent event = midiEvents[i];
+    uint8_t eventType = event.data[0];
+    uint8_t eventKey = event.data[1];
+    uint8_t eventParam = event.data[2];
+    // printf("processing midi: %d- %d,%d,%d\n", i, eventType, eventKey, eventParam);
+    switch (eventType) {
+      case 128: // release
+        midiEnergyMap[eventKey] = eventParam;
+        break;
+      case 144: // attack
+        midiEnergyMap[eventKey] = eventParam;
+        break;
+      case 176: // knob
+        midiEnergyMap[eventKey] = eventParam;
+        break;
+      case 129: // pad1
+        midiEnergyMap[eventKey] = eventParam;
+        break;
+      case 145: // pad2
+        midiEnergyMap[eventKey] = eventParam;
+        break;
+      case 209: // pad3
+        midiEnergyMap[eventKey] = eventParam;
+        break;
+    }			
+		// DEBUG_PRINTF("midi %d %d %d\n", eventType, eventKey, eventParam);
     }
 }
 

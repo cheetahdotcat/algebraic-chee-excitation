@@ -17,9 +17,20 @@
 #define RINGBUFFER_SIZE 8192
 #pragma endregion
 
+#include "codec/channel.h"
+#include "codec/source.h"
+
 
 class CheetahDSP : public AbstractDSP {
 public:
+  class Callback
+  {
+  public:
+      virtual ~Callback() {}
+      virtual void onVocoderFrame(Word16 *frame) = 0;
+  };
+  Callback* callback;
+  
   enum Parameters
   {
       paramVolume = 0,
@@ -32,6 +43,8 @@ public:
 
   CheetahDSP(double sampleRate);
   ~CheetahDSP();
+  void setCallback(Callback* callback) noexcept;
+
   float getParameterValue(uint32_t index) const;
   void  setParameterValue(uint32_t index, float value);
   void threadFunction();
@@ -67,6 +80,8 @@ private:
   float early_out_buffer[2][BUFFER_SIZE];
   float late_in_buffer[2][BUFFER_SIZE];
   float late_out_buffer[2][BUFFER_SIZE];
+
+  void corrupt_audio(Word16 *data);
 };
 
 #endif

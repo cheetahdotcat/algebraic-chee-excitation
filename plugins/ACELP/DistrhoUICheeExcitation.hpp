@@ -96,7 +96,7 @@ private:
 
     ScopedPointer<Selection> bankSelection;
     ScopedPointer<Selection> presetSelection;
-    ScopedPointer<Spectrogram> spectrogram;
+    // ScopedPointer<Spectrogram> spectrogram;
     int currentBank;
     int currentProgram[NUM_BANKS];
     void updateBank(int newBank);

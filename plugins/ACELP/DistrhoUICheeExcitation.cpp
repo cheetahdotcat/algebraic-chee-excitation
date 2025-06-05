@@ -46,18 +46,18 @@ DistrhoUICheeExcitation::DistrhoUICheeExcitation()
     Image aboutImage(Art::aboutData, Art::aboutWidth, Art::aboutHeight, kImageFormatBGR);
     fAboutWindow.setImage(aboutImage);
 
-    // // slider
-    Image sliderImage(Art::sliderData, Art::sliderWidth, Art::sliderHeight, kImageFormatBGRA);
+    // // // slider
+    // Image sliderImage(Art::sliderData, Art::sliderWidth, Art::sliderHeight, kImageFormatBGRA);
 
-    fSliderWaveform = new ImageSlider(this, sliderImage);
-    fSliderWaveform->setId(CheetahDSP::paramCorruptionIntensity);
-    fSliderWaveform->setStartPos(38, 424);
-    fSliderWaveform->setEndPos(602, 434);
-    fSliderWaveform->setCheckable(true);
-    fSliderWaveform->setRange(0.0f, 1.0f);
-    fSliderWaveform->setStep(1.0f);
-    fSliderWaveform->setValue(0.0f);
-    fSliderWaveform->setCallback(this);
+    // fSliderWaveform = new ImageSlider(this, sliderImage);
+    // fSliderWaveform->setId(CheetahDSP::paramCorruptionIntensity);
+    // fSliderWaveform->setStartPos(38, 424);
+    // fSliderWaveform->setEndPos(602, 434);
+    // fSliderWaveform->setCheckable(true);
+    // fSliderWaveform->setRange(0.0f, 1.0f);
+    // fSliderWaveform->setStep(1.0f);
+    // fSliderWaveform->setValue(0.0f);
+    // fSliderWaveform->setCallback(this);
 
     // knobs
     Image knobImage(Art::knobData, Art::knobWidth, Art::knobHeight, kImageFormatBGRA);
@@ -105,7 +105,7 @@ DistrhoUICheeExcitation::DistrhoUICheeExcitation()
     fKnobCorrMode = new ImageKnob(this, knobImage, ImageKnob::Vertical);
     fKnobCorrMode->setId(CheetahDSP::paramCorruptionMode);
     fKnobCorrMode->setAbsolutePos(UI_OFFSET_CORR_MAG_X, UI_OFFSET_VOLUME_Y);
-    fKnobCorrMode->setRange(0.0f, 2.0f);
+    fKnobCorrMode->setRange(0.0f, 7.0f);
     fKnobCorrMode->setDefault(0.0f);
     fKnobCorrMode->setValue(0.0f);
     fKnobCorrMode->setRotationAngle(305);
@@ -132,13 +132,33 @@ DistrhoUICheeExcitation::DistrhoUICheeExcitation()
     // neko animation
     addIdleCallback(this, 120);
 
-    // Spectrogram
-    rectDisplay.setPos  ( 355, 126 );
-    rectDisplay.setSize ( 305, 207 );
+    // // Spectrogram
+    // rectDisplay.setPos  ( 40, 126 );
+    // rectDisplay.setSize ( 305, 207 );
 
-    AbstractDSP *dsp = new CheetahDSP(SPECTROGRAM_SAMPLE_RATE);
-    spectrogram = new Spectrogram(this, &nanoText, &rectDisplay, dsp);
-    spectrogram->setAbsolutePos (355, 126);
+    // AbstractDSP *dsp = new CheetahDSP(SPECTROGRAM_SAMPLE_RATE);
+    // spectrogram = new Spectrogram(this, &nanoText, &rectDisplay, dsp);
+    // spectrogram->setAbsolutePos (40, 126);
+    #pragma region "Preset/Bank Selection"
+    // bankSelection = new Selection(this, this, 100, &nanoText, NUM_BANKS);
+    // bankSelection->setAbsolutePos(320, 5);
+    // bankSelection->setSelectedImage(&knobImage);
+    // bankSelection->setUnselectedImage(&knobImage);
+    // bankSelection->setTextAlign(NanoVG::ALIGN_RIGHT);
+    // for ( int i = 0; i < NUM_BANKS; ++i) { 
+    //   DEBUG_PRINTF("bankSelection->setOptionName(%d,%s)\n", i, banks[i].name);
+    //   bankSelection->setOptionName(i, banks[i].name);
+    // }
+
+    // presetSelection = new Selection(this, this, 165, &nanoText, PRESETS_PER_BANK);
+    // presetSelection->setAbsolutePos(420, 5);
+
+    // for (int b = 0; b < NUM_BANKS; b++)
+    // {
+    //   currentProgram[b] = DEFAULT_PRESET;
+    // }
+    // updateBank(DEFAULT_BANK);
+    #pragma endregion
     DEBUG_PRINTF("done init UI\n");
 }
 
@@ -177,18 +197,19 @@ void DistrhoUICheeExcitation::parameterChanged(uint32_t index, float value)
 
 void DistrhoUICheeExcitation::stateChanged(const char* key, const char* value)
 {
-  if (std::strcmp(key, "preset") == 0) {
-    for (int b = 0; b < NUM_BANKS; b++) {
-      for (int p = 0; p < PRESETS_PER_BANK; p++) {
-        if (std::strcmp(value, banks[b].presets[p].name) == 0) {
-          currentProgram[b] = p;
-          updateBank(b);
-        }
-      }
-    }
+  DEBUG_PRINTF("state changed %s %s\n", key, value);
+  // if (std::strcmp(key, "preset") == 0) {
+  //   for (int b = 0; b < NUM_BANKS; b++) {
+  //     for (int p = 0; p < PRESETS_PER_BANK; p++) {
+  //       if (std::strcmp(value, banks[b].presets[p].name) == 0) {
+  //         currentProgram[b] = p;
+  //         updateBank(b);
+  //       }
+  //     }
+  //   }
 
-    updatePresetDefaults();
-  }
+  //   updatePresetDefaults();
+  // }
 
   repaint();
 }
@@ -234,56 +255,51 @@ void DistrhoUICheeExcitation::imageSliderValueChanged(ImageSlider* slider, float
     setParameterValue(slider->getId(), value);
 }
 
-void DistrhoUICheeExcitation::onDisplay()
-{
-    const GraphicsContext& context(getGraphicsContext());
+void DistrhoUICheeExcitation::onDisplay() {
+  const GraphicsContext& context(getGraphicsContext());
 
-    fImgBackground.draw(context);
-    // fNeko.draw(context);
-    // print parameters
-    nanoText.beginFrame ( this );
-    nanoText.fontSize ( 15 );
-    nanoText.textAlign ( NanoVG::ALIGN_CENTER|NanoVG::ALIGN_MIDDLE );
+  fImgBackground.draw(context);
+  nanoText.beginFrame ( this );
+  nanoText.fontSize ( 15 );
+  nanoText.textAlign ( NanoVG::ALIGN_CENTER|NanoVG::ALIGN_MIDDLE );
 
-    nanoText.fillColor ( Color ( 255,255, 255) );
+  nanoText.fillColor ( Color ( 255,255, 255) );
 
-    char strBuf[32+1];
-    strBuf[32] = '\0';
-
-    //   std::snprintf ( strBuf, 32, "%i%%", int ( sliderDryLevel->getValue() ) );
-    //   nanoText.textBox ( 17 - 2, 330, 35.0f, strBuf, nullptr );
-    //   std::snprintf ( strBuf, 32, "%i%%", int ( sliderEarlyLevel->getValue() ) );
-    //   nanoText.textBox ( 57 - 2, 330, 35.0f, strBuf, nullptr );
-    //   std::snprintf ( strBuf, 32, "%i%%", int ( sliderEarlySend->getValue() ) );
-    //   nanoText.textBox ( 97 - 2, 330, 35.0f, strBuf, nullptr );
-    //   std::snprintf ( strBuf, 32, "%i%%", int ( sliderLateLevel->getValue() ) );
-    //   nanoText.textBox (137 - 2, 330, 35.0f, strBuf, nullptr );
-
-    // print labels;
-    nanoText.fillColor ( Color ( 0.90f, 0.95f, 1.00f ) );
-    nanoText.fontSize ( 14 );
-    nanoText.textBox (  10, 130, 40, "Dry\nLevel",   nullptr );
-    nanoText.textBox (  50, 130, 40, "Early\nLevel", nullptr );
-    nanoText.textBox (  90, 130, 40, "Early\nSend",  nullptr );
-    nanoText.textBox ( 130, 130, 40, "Late\nLevel",  nullptr );
-
-    nanoText.endFrame();
-    spectrogram->show();
+  char strBuf[32+1];
+  strBuf[32] = '\0';
+  std::snprintf ( strBuf, 32, "%i%%", int ( fKnobVolume->getValue() ) );
+  nanoText.textBox ( UI_OFFSET_VOLUME_X + 8, UI_OFFSET_VOLUME_Y + 25, 35.0f, strBuf, nullptr );
+  std::snprintf ( strBuf, 32, "%i%%", int ( fKnobCorrMode->getValue() ) );
+  nanoText.textBox ( UI_OFFSET_CORR_MAG_X + 8, UI_OFFSET_VOLUME_Y + 25, 35.0f, strBuf, nullptr );
+  std::snprintf ( strBuf, 32, "%i%%", int ( fKnobCorrInt->getValue() ) );
+  nanoText.textBox ( UI_OFFSET_VOLUME_X + 8, UI_OFFSET_CORR_INT_Y + 25, 35.0f, strBuf, nullptr );
+  std::snprintf ( strBuf, 32, "%i%%", int ( fKnobCorrMag->getValue() ) );
+  nanoText.textBox (UI_OFFSET_CORR_MAG_X + 8, UI_OFFSET_CORR_INT_Y + 25, 35.0f, strBuf, nullptr );
+  std::snprintf ( strBuf, 32, "%i%%", int ( fKnobCodecType->getValue() ) );
+  nanoText.textBox (UI_OFFSET_TYPE_X + 8, UI_OFFSET_VOLUME_Y + 25, 35.0f, strBuf, nullptr );
+  // // print labels;
+  // nanoText.fillColor ( Color ( 0.90f, 0.95f, 1.00f ) );
+  // nanoText.fontSize ( 14 );
+  // nanoText.textBox (  10, 130, 40, "Dry\nLevel",   nullptr );
+  // nanoText.textBox (  50, 130, 40, "Early\nLevel", nullptr );
+  // nanoText.textBox (  90, 130, 40, "Early\nSend",  nullptr );
+  // nanoText.textBox ( 130, 130, 40, "Late\nLevel",  nullptr );
+  nanoText.endFrame();
+  // spectrogram->show();
 }
 
 void DistrhoUICheeExcitation::uiIdle() {
-  spectrogram->uiIdle();
+  // spectrogram->uiIdle();
 }
 // -----------------------------------------------------------------------
 // Other Callbacks
 
 void DistrhoUICheeExcitation::idleCallback()
 {
-    // if (fNeko.idle())
-        // repaint();
+  // if (fNeko.idle())
+  repaint();
 }
-void DistrhoUICheeExcitation::programLoaded(uint32_t index)
-{
+void DistrhoUICheeExcitation::programLoaded(uint32_t index) {
     // Handle program loading logic here.
     // If you don't use programs, you can leave it empty:
     (void)index;
@@ -291,6 +307,7 @@ void DistrhoUICheeExcitation::programLoaded(uint32_t index)
 // -----------------------------------------------------------------------
 
 void DistrhoUICheeExcitation::selectionClicked(Selection* selection, int selectedOption) {
+  DEBUG_PRINTF("selection clicked\n");
   if (selection == bankSelection) {
     updateBank(selectedOption);
   }
@@ -298,42 +315,43 @@ void DistrhoUICheeExcitation::selectionClicked(Selection* selection, int selecte
     currentProgram[currentBank] = selectedOption;
     presetSelection->setSelectedOption(selectedOption);
   }
-
+  //
   setState("preset", banks[currentBank].presets[currentProgram[currentBank]].name);
   updatePresetDefaults();
-
+  //
   const float *preset = banks[currentBank].presets[currentProgram[currentBank]].params;
-
+  //
   fKnobVolume->setDefault ( preset[paramVolume] );
   fKnobCodecType->setDefault ( preset[paramCodecType] );
   fKnobCorrInt->setDefault ( preset[paramCorruptionIntensity] );
   fKnobCorrMag->setDefault ( preset[paramCorruptionMagnitude] );
   fKnobCorrMode->setDefault ( preset[paramCorruptionMode] );
-
-//   for ( uint32_t i = 0; i < paramCount; i++ ) {
-//     // Don't set sliders
-//     if (i != paramDry   &&
-//         i != paramEarly &&
-//         i != paramEarlySend   &&
-//         i != paramLate) {
-//             setParameterValue ( i, preset[i] );
-//             spectrogram->setParameterValue(i, preset[i]);
-//     }
-//   }
-
+  //   for ( uint32_t i = 0; i < paramCount; i++ ) {
+  //     // Don't set sliders
+  //     if (i != paramDry   &&
+  //         i != paramEarly &&
+  //         i != paramEarlySend   &&
+  //         i != paramLate) {
+  //             setParameterValue ( i, preset[i] );
+  //             spectrogram->setParameterValue(i, preset[i]);
+  //     }
+  //   }
   repaint();
 }
 
 void DistrhoUICheeExcitation::updateBank(int newBank) {
+  DEBUG_PRINTF("updateBank newBank=%d\n", newBank);
   currentBank = newBank;
   bankSelection->setSelectedOption(newBank);
   presetSelection->setSelectedOption(currentProgram[currentBank]);
   for ( int p = 0; p < NUM_BANKS; ++p) {
+    DEBUG_PRINTF("presetSelection->setOptionName(%d,%s)\n", p, banks[currentBank].presets[p].name);
     presetSelection->setOptionName(p, banks[currentBank].presets[p].name);
   }
 }
 
 void DistrhoUICheeExcitation::updatePresetDefaults() {
+  DEBUG_PRINTF("updatePresetDefaults\n");
   const float *preset = banks[currentBank].presets[currentProgram[currentBank]].params;
 
   fKnobVolume->setDefault ( preset[paramVolume] );
