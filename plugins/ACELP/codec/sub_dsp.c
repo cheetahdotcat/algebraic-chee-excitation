@@ -82,32 +82,32 @@
 *
 **************************************************************************/
 
-void Autocorr(Word16 x[], Word16 p, Word16 r_h[], Word16 r_l[])
+void Autocorr(Word16 x[], Word16 p, Word16 r_h[], Word16 r_l[], Word16 windowSize, Word16 *lpcWindow)
 {
   Word16 i, j, norm;
-  Word16 y[L_window];
+  Word16 y[windowSize];
   Word32 sum;
 
   extern Flag Overflow;
 
   /* Windowing of signal */
 
-  for(i=0; i<L_window; i++)
-    y[i] = mult_r(x[i], window[i]);
+  for(i=0; i<windowSize; i++)
+    y[i] = mult_r(x[i], lpcWindow[i]);
 
   /* Compute r[0] and test for overflow */
 
   do {
     Overflow = 0;
     sum = 1;				/* Avoid case of all zeros */
-    for(i=0; i<L_window; i++)
+    for(i=0; i<windowSize; i++)
       sum = L_mac0(sum, y[i], y[i]);
 
     /* If overflow divide y[] by 4 */
 
     if(Overflow != 0)
     {
-      for(i=0; i<L_window; i++)
+      for(i=0; i<windowSize; i++)
         y[i] = shr(y[i], (Word16)2);
     }
 
@@ -126,7 +126,7 @@ void Autocorr(Word16 x[], Word16 p, Word16 r_h[], Word16 r_l[])
   for (i = 1; i <= p; i++)
   {
     sum = 0;
-    for(j=0; j<L_window-i; j++)
+    for(j=0; j<windowSize-i; j++)
       sum = L_mac0(sum, y[j], y[j+i]);
 
     sum = L_shr(sum, (Word16)1);		/* Special double format */

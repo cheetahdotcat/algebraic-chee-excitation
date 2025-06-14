@@ -21,6 +21,38 @@
 #include "codec/source.h"
 
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+#define L_frame 240*2
+#define serial_size 138*2
+#define ana_size 23
+#define prm_size 24
+
+#define dual_serial_size 2*serial_size // 276
+#define s286_size dual_serial_size + 10 // 286
+#define TS7k2_size 432*2
+#define TimeSlotBufferSize TS7k2_size*4
+
+#define TETRA_SampleRate 16000
+#define VST_SampleRate 48000
+
+#define ACELP_DUAL_CHAN_FRAME_SIZE TS7k2_size // 60ms @ 8kHz
+#define ACELP_DUAL_CHAN_AUDIO_SIZE L_frame*2 // 8kHz // L_frame*2
+
+#define ACELP_FRAME_SIZE s286_size // 60ms @ 8kHz
+#define ACELP_VOCODER_SAMPLE_COUNT s286_size
+#define UPSAMPLE_RATIO VST_SampleRate/TETRA_SampleRate
+#define DOWNSAMPLE_RATIO UPSAMPLE_RATIO
+#define UPSAMPLED_FRAME_SIZE (ACELP_FRAME_SIZE * UPSAMPLE_RATIO)
+
+#ifdef __cplusplus
+}
+#endif
+
+
+
+
 class CheetahDSP : public AbstractDSP {
 public:
   class Callback

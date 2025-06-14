@@ -53,7 +53,7 @@ SKIP_NATIVE_AUDIO_FALLBACK = true
 USE_FILE_BROWSER = false
 # Meeow
 UI_TYPE = generic
-CXXFLAGS += -lspeexdsp -lpthread
+CXXFLAGS += -lspeexdsp -lpthread -g -O0
 include 	../../dpf/Makefile.plugins.mk
 
 # --------------------------------------------------------------

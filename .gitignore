@@ -19,3 +19,12 @@ bin/acelp-dssi.*
 bin/acelp-vst.*
 bin/acelp.lv2/
 build/
+old/inline-processor
+old/inline-processor-decode.c
+old/inline-processor-encode.c
+old/inline-processor-jack
+old/inline-processor-jack.c
+.gitignore
+bin/algebraic-chee-excitation
+.vscode/settings.json
+old/Makefile

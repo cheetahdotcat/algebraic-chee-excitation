@@ -232,7 +232,7 @@ void encoder_Init_Coder_Tetra(void)
 *
 **************************************************************************/
 
-void encoder_Coder_Tetra(Word16 ana[], Word16 synth[])
+void encoder_Coder_Tetra(Word16 ana[], Word16 synth[], Word16 windowSize, Word16 *lpcWindow)
 {
 
   /* LPC coefficients */
@@ -287,7 +287,7 @@ void encoder_Coder_Tetra(Word16 ana[], Word16 synth[])
  *         subframes (both quantized and unquantized)                     *
  *------------------------------------------------------------------------*/
 
-  Autocorr(encoder_p_window, p, r_h, r_l);		/* Autocorrelations */
+  Autocorr(encoder_p_window, p, r_h, r_l, windowSize, lpcWindow);		/* Autocorrelations */
 
   Lag_Window(p, r_h, r_l);			/* Lag windowing    */
 

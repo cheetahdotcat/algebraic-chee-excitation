@@ -70,7 +70,7 @@ Word32 pow2(Word16 exponant, Word16 fraction);
 
 /* General signal processing */
 
-void   Autocorr(Word16 x[], Word16 p, Word16 r_h[], Word16 r_l[]);
+void   Autocorr(Word16 x[], Word16 p, Word16 r_h[], Word16 r_l[], Word16 windowSize, Word16 *lpcWindow);
 void   Az_Lsp(Word16 a[], Word16 lsp[], Word16 old_lsp[]);
 void   Back_Fil(Word16 x[], Word16 h[], Word16 y[], Word16 L);
 Word16 Chebps(Word16 x, Word16 f[], Word16 n);
@@ -90,7 +90,7 @@ void   Syn_Filt(Word16 a[], Word16 x[], Word16 y[], Word16 lg, Word16 mem[],
 /* Specific coder functions */
 
 void   encoder_Init_Coder_Tetra(void);
-void   encoder_Coder_Tetra(Word16 ana[], Word16 synth[]);
+void   encoder_Coder_Tetra(Word16 ana[], Word16 synth[], Word16 windowSize, Word16 *lpcWindow);
 void   Cal_Rr2(Word16 h[], Word16 *rr);
 void   Clsp_334(Word16 *lsp, Word16 *lsp_q, Word16 *indice);
 Word16 D4i60_16(Word16 dn[], Word16 f[], Word16 h[], Word16 rr[][32],
@@ -197,6 +197,6 @@ extern Word16 encoder_last_ener_cod;
 extern Word16 sdec_last_ener_pit;
 extern Word16 sdec_last_ener_cod;
 
-extern Word16 encoder_old_speech[(240+40+10)];
+extern Word16 *encoder_old_speech; // [(240+40+10)]
 extern Word16 *encoder_speech, *encoder_p_window;
 extern Word16 *encoder_new_speech;                    /* Global variable */

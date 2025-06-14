@@ -27,13 +27,9 @@ Word16 encoder_last_ener_pit;
 Word16 encoder_last_ener_cod;
 Word16 sdec_last_ener_pit;
 Word16 sdec_last_ener_cod;
-Word16 encoder_old_speech[(240+40+10)];
+Word16 speech_frameCache[(L_frame+40+10)];
 Word16 *encoder_speech, *encoder_p_window;
 Word16 *encoder_new_speech;                    /* Global variable */
-#define L_frame 240
-#define serial_size 138
-#define ana_size 23
-#define prm_size 24
 
 Word16 encoder_FS_Flag = 0; /* Frame Stealing Flag :
 				 0 = no stealing in the time-slot,
@@ -43,9 +39,9 @@ Word16 encoder_FS_Flag = 0; /* Frame Stealing Flag :
 Word32 encoder_Loop_counter = 0;
 short encoder_first_pass = true;
 Word16 encoder_i;
-Word16 encoder_Vocod_array[274]; /* Input Buffer : 2 vocoder frames */
-Word16 encoder_Coded_array[432];
-Word16 encoder_Interleaved_coded_array[432]; /* Output Buffer */
+Word16 encoder_Vocod_array[dual_serial_size-2]; /* Input Buffer : 2 vocoder frames */
+Word16 encoder_Coded_array[TS7k2_size];
+Word16 encoder_Interleaved_coded_array[TS7k2_size]; /* Output Buffer */
 
 // scoder
 
@@ -84,9 +80,9 @@ Word16 decoder_bfi1 = 0;
 Word16 decoder_bfi2 = 0; /* Reset Bad Frame Indicator :
 	0 = correct data, 1 = Corrupted frame */
 
-Word16 decoder_Reordered_array[286];		 /* 2 frames vocoder + 8 + 4 */
-Word16 decoder_Interleaved_coded_array[432]; /*time-slot length at 7.2 kb/s*/
-Word16 decoder_Coded_array[432];
+Word16 decoder_Reordered_array[s286_size];		 /* 2 frames vocoder + 8 + 4 */
+Word16 decoder_Interleaved_coded_array[TS7k2_size]; /*time-slot length at 7.2 kb/s*/
+Word16 decoder_Coded_array[TS7k2_size];
 //
 int speex_err;
 void convert_buffer_int16_to_float(Word16 *in, float *out, size_t n) {
@@ -113,22 +109,89 @@ void print_float_hex(const float *data, int len) {
 }
 void print_word16_hex(const Word16 *data, int len) {
     for (int i = 0; i < len; ++i) {
-        DEBUG_PRINTF("%04X%s", (uint16_t)data[i], (i < len - 1) ? "" : "\n");
-        if ((i + 1) % 32 == 0) DEBUG_PRINTF("\n"); // optional: newline every 8 entries
+        printf("%04X%s", (uint16_t)data[i], (i < len - 1) ? "" : "\n");
+        if ((i + 1) % 32 == 0) printf("\n"); // optional: newline every 8 entries
     }
 }
 //
 
 
-#define ACELP_DUAL_CHAN_FRAME_SIZE 432 // 60ms @ 8kHz
-#define ACELP_DUAL_CHAN_AUDIO_SIZE 480 // 8kHz // L_frame*2
+// #define ACELP_DUAL_CHAN_FRAME_SIZE 432 // 60ms @ 8kHz
+// #define ACELP_DUAL_CHAN_AUDIO_SIZE 480 // 8kHz // L_frame*2
 
-#define ACELP_FRAME_SIZE 286 // 60ms @ 8kHz
-#define ACELP_VOCODER_SAMPLE_COUNT 286
-#define UPSAMPLE_RATIO 6
-#define DOWNSAMPLE_RATIO 6
-#define UPSAMPLED_FRAME_SIZE (ACELP_FRAME_SIZE * UPSAMPLE_RATIO)
+// #define ACELP_FRAME_SIZE 286 // 60ms @ 8kHz
+// #define ACELP_VOCODER_SAMPLE_COUNT 286
+// #define UPSAMPLE_RATIO 6
+// #define DOWNSAMPLE_RATIO 6
+// #define UPSAMPLED_FRAME_SIZE (ACELP_FRAME_SIZE * UPSAMPLE_RATIO)
 Word16 samples[ACELP_DUAL_CHAN_AUDIO_SIZE];
+
+static Word16 window512[512] = {
+   2621,  2622,  2626,  2632,  2640,  2650,  2662,  2677,
+   2694,  2714,  2735,  2759,  2785,  2814,  2844,  2877,
+   2912,  2949,  2989,  3031,  3075,  3121,  3169,  3220,
+   3273,  3328,  3385,  3444,  3506,  3569,  3635,  3703,
+   3773,  3845,  3919,  3996,  4074,  4155,  4237,  4321,
+   4408,  4496,  4587,  4680,  4774,  4870,  4969,  5069,
+   5171,  5275,  5381,  5489,  5599,  5710,  5824,  5939,
+   6056,  6174,  6295,  6417,  6541,  6666,  6793,  6922,
+   7052,  7185,  7318,  7453,  7590,  7728,  7868,  8010,
+   8152,  8296,  8442,  8589,  8737,  8887,  9038,  9191,
+   9344,  9499,  9655,  9813,  9971, 10131, 10292, 10454,
+  10617, 10781, 10946, 11113, 11280, 11448, 11617, 11787,
+  11958, 12130, 12303, 12476, 12650, 12825, 13001, 13178,
+  13355, 13533, 13711, 13890, 14070, 14250, 14431, 14612,
+  14793, 14975, 15158, 15341, 15524, 15708, 15892, 16076,
+  16260, 16445, 16629, 16814, 16999, 17185, 17370, 17555,
+  17741, 17926, 18111, 18296, 18481, 18667, 18851, 19036,
+  19221, 19405, 19589, 19773, 19956, 20139, 20322, 20504,
+  20686, 20867, 21048, 21229, 21409, 21588, 21767, 21945,
+  22122, 22299, 22475, 22651, 22825, 22999, 23172, 23344,
+  23516, 23686, 23856, 24025, 24192, 24359, 24525, 24689,
+  24853, 25016, 25177, 25337, 25496, 25654, 25811, 25967,
+  26121, 26274, 26426, 26576, 26725, 26873, 27019, 27164,
+  27308, 27450, 27590, 27729, 27867, 28003, 28137, 28270,
+  28401, 28531, 28659, 28785, 28910, 29033, 29154, 29274,
+  29391, 29507, 29622, 29734, 29845, 29953, 30060, 30165,
+  30268, 30370, 30469, 30566, 30662, 30755, 30847, 30936,
+  31024, 31109, 31193, 31274, 31354, 31431, 31506, 31579,
+  31650, 31719, 31786, 31851, 31913, 31974, 32032, 32088,
+  32142, 32194, 32243, 32291, 32336, 32379, 32419, 32458,
+  32494, 32528, 32560, 32589, 32617, 32642, 32664, 32685,
+  32703, 32719, 32733, 32744, 32753, 32760, 32764, 32767,
+  32767, 32764, 32757, 32744, 32726, 32704, 32676, 32643,
+  32606, 32563, 32516, 32463, 32406, 32344, 32277, 32205,
+  32128, 32047, 31960, 31870, 31774, 31674, 31570, 31461,
+  31347, 31229, 31107, 30980, 30850, 30715, 30576, 30433,
+  30286, 30135, 29980, 29821, 29659, 29493, 29323, 29150,
+  28974, 28794, 28610, 28424, 28235, 28042, 27846, 27648,
+  27447, 27243, 27036, 26827, 26615, 26401, 26185, 25967,
+  25746, 25523, 25298, 25072, 24844, 24613, 24382, 24149,
+  23914, 23678, 23440, 23202, 22962, 22722, 22480, 22238,
+  21995, 21751, 21506, 21261, 21016, 20770, 20524, 20278,
+  20031, 19785, 19538, 19292, 19046, 18800, 18554, 18309,
+  18065, 17820, 17577, 17334, 17092, 16850, 16610, 16370,
+  16131, 15894, 15657, 15422, 15188, 14955, 14723, 14493,
+  14264, 14037, 13811, 13586, 13364, 13142, 12923, 12705,
+  12489, 12275, 12063, 11852, 11643, 11437, 11232, 11029,
+  10828, 10629, 10433, 10238, 10045,  9855,  9666,  9480,
+   9296,  9114,  8934,  8757,  8582,  8409,  8238,  8069,
+   7903,  7738,  7577,  7417,  7259,  7104,  6951,  6801,
+   6652,  6506,  6362,  6220,  6081,  5944,  5808,  5676,
+   5545,  5416,  5290,  5166,  5044,  4924,  4806,  4690,
+   4577,  4465,  4355,  4248,  4142,  4039,  3937,  3838,
+   3740,  3645,  3551,  3459,  3369,  3281,  3194,  3110,
+   3027,  2946,  2867,  2789,  2713,  2639,  2566,  2495,
+   2426,  2358,  2291,  2227,  2163,  2102,  2041,  1982,
+   1925,  1869,  1814,  1760,  1708,  1657,  1608,  1559,
+   1512,  1466,  1422,  1378,  1336,  1294,  1254,  1215,
+   1177,  1140,  1103,  1068,  1034,  1001,   969,   937,
+    907,   877,   848,   820,   793,   766,   741,   716,
+    692,   668,   645,   623,   602,   581,   561,   541,
+    522,   504,   486,   469,   452,   436,   421,   405,
+    391,   377,   363,   350,   337,   324,   312,   301,
+    289,   279,   268,   258,   248,   239,   230,   221,
+};
 
 void upsample_6x(float *in, float *out, size_t out_len) {
     size_t num_input_samples = out_len / UPSAMPLE_RATIO;
@@ -159,7 +222,7 @@ void encode_acelp(float *input_8khz, Word16 *out) {
 	Word16 firstHalf[L_frame];
 	Word16 secondHalf[L_frame];
 	// static Word16 out2[ACELP_DUAL_CHAN_AUDIO_SIZE];
-	Word16 vocoder_ChannelFrame[432];
+	Word16 vocoder_ChannelFrame[TS7k2_size];
 
 	// static Word16 outInterleaved_coded_array[ACELP_DUAL_CHAN_FRAME_SIZE]; /* Output Buffer */
 	// print_float_hex(input_8khz, 480);
@@ -172,15 +235,15 @@ void encode_acelp(float *input_8khz, Word16 *out) {
 		// print_float_hex(down_out, 480);
 	// // print_word16_hex(firstHalf, L_frame);
 	// print_word16_hex(samples, 480);
-	Word16 vocoderArray[274];
-	Word16 vocoderSerial[138];
+	Word16 vocoderArray[dual_serial_size-2];
+	Word16 vocoderSerial[serial_size];
 
 	{ // 1st 137 bits
 		// print_word16_hex(firstHalf, 240);
 		memcpy(encoder_new_speech, firstHalf, L_frame*sizeof(Word16));
 		Pre_Process(firstHalf, (Word16)L_frame); /* Pre processing of input speech */
 		// print_word16_hex(firstHalf, L_frame);
-		encoder_Coder_Tetra(ana, syn);					  /* Find speech parameters         */
+		encoder_Coder_Tetra(ana, syn, 512, window512);					  /* Find speech parameters         */
 		// print_word16_hex(ana, 23);
 		// print_word16_hex(syn, 240);
 		Post_Process(syn, (Word16)L_frame);		  /* Post processing of synthesis   */
@@ -189,14 +252,14 @@ void encode_acelp(float *input_8khz, Word16 *out) {
 		//fwrite(serial, sizeof(Word16), serial_size, f_serial);
 		// print_word16_hex(vocoderSerial, 138);
 		// TODO: copy serial to Vocod_array
-		for (encoder_i = 0; encoder_i < 137; encoder_i++)
+		for (encoder_i = 0; encoder_i < serial_size-1; encoder_i++)
 			vocoderArray[encoder_i] = vocoderSerial[encoder_i+1];
 	}
 	{ // second 137 bits
 		Pre_Process(secondHalf, (Word16)L_frame); /* Pre processing of input speech */
 		// print_word16_hex(secondHalf, L_frame);
 		memcpy(encoder_new_speech, secondHalf, L_frame*sizeof(Word16));
-		encoder_Coder_Tetra(ana, syn);					  /* Find speech parameters         */
+		encoder_Coder_Tetra(ana, syn, 512, window512);					  /* Find speech parameters         */
 		// print_word16_hex(ana, 23);
 		// print_word16_hex(syn, 240);
 		Post_Process(syn, (Word16)L_frame);		  /* Post processing of synthesis   */
@@ -205,10 +268,10 @@ void encode_acelp(float *input_8khz, Word16 *out) {
 		//fwrite(serial, sizeof(Word16), serial_size, f_serial);
 		// print_word16_hex(vocoderSerial, 138);
 		// TODO: copy serial to Vocod_array
-		for (encoder_i = 0; encoder_i < 137; encoder_i++)
-			vocoderArray[encoder_i+137] = vocoderSerial[encoder_i+1];
+		for (encoder_i = 0; encoder_i < serial_size-1; encoder_i++)
+			vocoderArray[encoder_i+(serial_size-1)] = vocoderSerial[encoder_i+1];
 	}
-	// print_word16_hex(vocoderArray, 274);
+	print_word16_hex(vocoderArray, dual_serial_size-2);
 	{ // Encode
 		/* Channel Encoding */
 		Channel_Encoding(encoder_first_pass, encoder_FS_Flag, vocoderArray, vocoder_ChannelFrame);
@@ -264,7 +327,7 @@ void decode_acelp(Word16 *dualChannelFrames, float *output_8kHz) {
 			/* bfi bit */
 			decoder_serial[decoder_serial_index++] = decoder_bfi1;
 			/* 1st speech frame */
-			for (int i = 0; i < 137; i++) {
+			for (int i = 0; i < serial_size-1; i++) {
 				decoder_serial[decoder_serial_index++] = decoder_Reordered_array[i];
 			}
 			Bits2prm_Tetra(decoder_serial, decoder_parm);	/* serial to parameters */
@@ -276,7 +339,7 @@ void decode_acelp(Word16 *dualChannelFrames, float *output_8kHz) {
 			/* bfi bit */
 			decoder_serial[decoder_serial_index++] = decoder_bfi2;
 			/* 2nd speech frame */
-			for (int i = 137; i < 274; i++) {
+			for (int i = serial_size-1; i < (dual_serial_size-2); i++) {
 				decoder_serial[decoder_serial_index++] = decoder_Reordered_array[i];
 			}
 			Bits2prm_Tetra(decoder_serial, decoder_parm);	/* serial to parameters */
@@ -343,13 +406,18 @@ CheetahDSP::CheetahDSP(double sampleRate): stopThread(false), threadRunning(fals
         backgroundThread = std::thread(&CheetahDSP::threadFunction, this);
     }
 
+#define  p        (Word16)10
+#define  L_next   (Word16)40
+#define  L_total  (Word16)(L_frame+L_next+p)
+#define  L_window (Word16)512
+
     sampleRateChanged(sampleRate);
 	if (!finalized) {
 		finalized = true;
 		DEBUG_PRINTF("activate\n");
         DEBUG_PRINTF("initialized initialACELPSetup 1\n");
         encoded_frame_queue = cat_ringbuffer_create(ACELP_DUAL_CHAN_FRAME_SIZE * 4);
-        ring_48k_incoming = cat_ringbuffer_create((48000 * sizeof(float))); // 1s 48khz
+        ring_48k_incoming = cat_ringbuffer_create((VST_SampleRate * sizeof(float))); // 1s 48khz
         ring2 = cat_ringbuffer_create(RINGBUFFER_SIZE);
         pcm_output_buffer = cat_ringbuffer_create(sizeof(float) * ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO);//(8*1024);
         /* Initialization of decoder  */
@@ -360,12 +428,17 @@ CheetahDSP::CheetahDSP(double sampleRate): stopThread(false), threadRunning(fals
         /* Loop for each "L_frame" speech data. */
         encoder_frame = 0;
         decoder_frame = 0;
+		// custom framesizes
+		encoder_old_speech = speech_frameCache;
+		encoder_new_speech = encoder_old_speech + L_total - L_frame;	/* New speech     */
+		encoder_speech     = encoder_new_speech - L_next;			/* Present frame  */
+		encoder_p_window   = encoder_old_speech + L_total - L_window;	/* For LPC window */
         //
-        resampler_down = speex_resampler_init(1, 48000, 8000, 5, &speex_err);
-        resampler_up = speex_resampler_init(1, 8000, 48000, 5, &speex_err);
+        resampler_down = speex_resampler_init(1, VST_SampleRate, TETRA_SampleRate, 5, &speex_err);
+        resampler_up = speex_resampler_init(1, TETRA_SampleRate, VST_SampleRate, 5, &speex_err);
 
         DEBUG_PRINTF("initialized initialACELPSetup 2\n");
-		
+
 		DEBUG_PRINTF("activate 2\n");
 		DEBUG_PRINTF("activated\n");
 	}
@@ -428,13 +501,13 @@ void CheetahDSP::corrupt_audio(Word16 *data) {
 	{ // Intermediary Layer
 		if (round(pCodecType == 1)) {
 			if (round(pCorrMode) == 1) {
-				corrupt_by_wrong_interleave(data, 432);
+				corrupt_by_wrong_interleave(data, TS7k2_size);
 			}
 			if (round(pCorrMode) == 2) {
-				corrupt_by_overflow(data, 432);
+				corrupt_by_overflow(data, TS7k2_size);
 			}
 			if (round(pCorrMode) == 3) {
-				bit_desync_shift_left_Word16(encoder_Interleaved_coded_array, 432);
+				bit_desync_shift_left_Word16(encoder_Interleaved_coded_array, TS7k2_size);
 				// int r = rand() % 100;
 				// if (r < midiEnergyMap[70]) {
 				// 	// allowFrameWrite = 0;
@@ -443,10 +516,10 @@ void CheetahDSP::corrupt_audio(Word16 *data) {
 				// allowFrameWrite = allowFrameWrite || 1;
 			}
 			if (round(pCorrMode) == 4) {
-				random_bit_desync_Word16(data, 432, pCorrInt, pCorrMag);
+				random_bit_desync_Word16(data, TS7k2_size, pCorrInt, pCorrMag);
 			}
 			if (round(pCorrMode) == 5) {
-				corrupt_bit_flips_Word16(data, 432, pCorrInt);
+				corrupt_bit_flips_Word16(data, TS7k2_size, pCorrInt);
 				// random_bit_desync_Word16(encoder_Interleaved_coded_array, 432, midiEnergyMap[70], midiEnergyMap[65]);
 			}
 			if (round(pCorrMode) == 6) {
