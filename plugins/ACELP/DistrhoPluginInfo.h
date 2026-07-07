@@ -84,9 +84,11 @@ static const Param PARAMS[paramCount] = {
   {paramVolume,               "Volume",               "volume",         0.0f,   100.0f,   "%"},
   {paramCodecType,            "Codec Type",           "codec_type",     0.0f,   4.0f,     "C"},
   {paramCodecBitrate,         "Codec Bitrate",        "codec_bitrate",  0.0f,   100.0f,   "%"},
-  {paramCorruptionMode,       "Corruption Mode",      "corr_mode",      0.0f,    60.0f,   "M"},
-  {paramCorruptionIntensity,  "Corruption Intensity", "corr_int",       0.0f,   150.0f,   "bits"},
-  {paramCorruptionMagnitude,  "Corruption Magnitude", "corr_mag",       0.0f,   100.0f,   "bits"}
+  // Mode: 0=off; 1-5 musical (LSP,pitch,codebook,gain,freeze); 6-10 extreme
+  // (bit-flips, bit-slip, burst, overflow, reinterleave). See CorruptMode.
+  {paramCorruptionMode,       "Corruption Mode",      "corr_mode",      0.0f,    10.0f,   ""},
+  {paramCorruptionIntensity,  "Corruption Intensity", "corr_int",       0.0f,   100.0f,   "%"},
+  {paramCorruptionMagnitude,  "Corruption Magnitude", "corr_mag",       0.0f,   100.0f,   "%"}
   // {paramDiffuse,    "Diffuse",     "diffuse",      0.0f,   100.0f,   "%"},
   // {paramLowCut,     "Low Cut",     "low_cut",      0.0f,   200.0f,  "Hz"},
   // {paramLowXover,   "Low Cross",   "low_xo",     200.0f,  1200.0f,  "Hz"},

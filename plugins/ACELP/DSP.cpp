@@ -21,6 +21,12 @@
 #include "DistrhoPluginInfo.h"
 #include "DSP.hpp"
 
+// 256-tap asymmetric Hamming LPC analysis window for the native 8kHz codec.
+// Provides `static Word16 window[256]` and `#define L_window 256`, passed to
+// encoder_Coder_Tetra(). (window512.tab holds the 512-tap variant for a future
+// HD mode.)
+#include "codec/window.tab"
+
 #pragma region "mein kram"
 
 Word16 encoder_last_ener_pit;
@@ -30,6 +36,7 @@ Word16 sdec_last_ener_cod;
 Word16 speech_frameCache[(L_frame+40+10)];
 Word16 *encoder_speech, *encoder_p_window;
 Word16 *encoder_new_speech;                    /* Global variable */
+Word16 *encoder_old_speech;                    /* points at speech_frameCache; declared extern in codec/source.h */
 
 Word16 encoder_FS_Flag = 0; /* Frame Stealing Flag :
 				 0 = no stealing in the time-slot,
@@ -126,6 +133,7 @@ void print_word16_hex(const Word16 *data, int len) {
 // #define UPSAMPLED_FRAME_SIZE (ACELP_FRAME_SIZE * UPSAMPLE_RATIO)
 Word16 samples[ACELP_DUAL_CHAN_AUDIO_SIZE];
 
+#if 0 // window512: 512-tap LPC window reserved for a future 16k/32k "HD" mode
 static Word16 window512[512] = {
    2621,  2622,  2626,  2632,  2640,  2650,  2662,  2677,
    2694,  2714,  2735,  2759,  2785,  2814,  2844,  2877,
@@ -192,6 +200,7 @@ static Word16 window512[512] = {
     391,   377,   363,   350,   337,   324,   312,   301,
     289,   279,   268,   258,   248,   239,   230,   221,
 };
+#endif // window512
 
 void upsample_6x(float *in, float *out, size_t out_len) {
     size_t num_input_samples = out_len / UPSAMPLE_RATIO;
@@ -212,7 +221,7 @@ void downsample_6x(const float *in, float *out, size_t in_len) {
 }
 
 // takes 480 samples and converts them into 432 16bit channel-frame
-void encode_acelp(float *input_8khz, Word16 *out) {
+void encode_acelp(float *input_8khz, Word16 *out, const CorruptCfg &cfg) {
 	Word16 syn[L_frame];		/* Local synthesis.       */
 	Word16 ana[ana_size];		/* Analysis parameters.   */
 	// static Word16 serial[serial_size]; /* Serial stream.         */
@@ -243,7 +252,8 @@ void encode_acelp(float *input_8khz, Word16 *out) {
 		memcpy(encoder_new_speech, firstHalf, L_frame*sizeof(Word16));
 		Pre_Process(firstHalf, (Word16)L_frame); /* Pre processing of input speech */
 		// print_word16_hex(firstHalf, L_frame);
-		encoder_Coder_Tetra(ana, syn, 512, window512);					  /* Find speech parameters         */
+		encoder_Coder_Tetra(ana, syn, L_window, window);					  /* Find speech parameters         */
+		corrupt_apply_params(ana, ana_size, cfg);     /* musical parameter-domain corruption */
 		// print_word16_hex(ana, 23);
 		// print_word16_hex(syn, 240);
 		Post_Process(syn, (Word16)L_frame);		  /* Post processing of synthesis   */
@@ -259,7 +269,8 @@ void encode_acelp(float *input_8khz, Word16 *out) {
 		Pre_Process(secondHalf, (Word16)L_frame); /* Pre processing of input speech */
 		// print_word16_hex(secondHalf, L_frame);
 		memcpy(encoder_new_speech, secondHalf, L_frame*sizeof(Word16));
-		encoder_Coder_Tetra(ana, syn, 512, window512);					  /* Find speech parameters         */
+		encoder_Coder_Tetra(ana, syn, L_window, window);					  /* Find speech parameters         */
+		corrupt_apply_params(ana, ana_size, cfg);     /* musical parameter-domain corruption */
 		// print_word16_hex(ana, 23);
 		// print_word16_hex(syn, 240);
 		Post_Process(syn, (Word16)L_frame);		  /* Post processing of synthesis   */
@@ -271,7 +282,7 @@ void encode_acelp(float *input_8khz, Word16 *out) {
 		for (encoder_i = 0; encoder_i < serial_size-1; encoder_i++)
 			vocoderArray[encoder_i+(serial_size-1)] = vocoderSerial[encoder_i+1];
 	}
-	print_word16_hex(vocoderArray, dual_serial_size-2);
+	// print_word16_hex(vocoderArray, dual_serial_size-2);  // realtime hazard: printf per frame in the audio thread
 	{ // Encode
 		/* Channel Encoding */
 		Channel_Encoding(encoder_first_pass, encoder_FS_Flag, vocoderArray, vocoder_ChannelFrame);
@@ -398,28 +409,32 @@ CheetahDSP::CheetahDSP(double sampleRate): stopThread(false), threadRunning(fals
 	ring2 = NULL;
 	ring_48k_incoming = NULL;
 	pcm_output_buffer = NULL;
+	resampler_down = NULL;
+	resampler_up = NULL;
 
     stopThread.store(false, std::memory_order_release);
     DEBUG_PRINTF("activate 3\n");
-    if (!threadRunning.load(std::memory_order_acquire)) {
-        DEBUG_PRINTF("starting background thread");
-        backgroundThread = std::thread(&CheetahDSP::threadFunction, this);
-    }
 
 #define  p        (Word16)10
 #define  L_next   (Word16)40
 #define  L_total  (Word16)(L_frame+L_next+p)
-#define  L_window (Word16)512
+// L_window comes from codec/window.tab (256); it must match the window passed
+// to encoder_Coder_Tetra so encoder_p_window is positioned correctly.
 
     sampleRateChanged(sampleRate);
 	if (!finalized) {
 		finalized = true;
 		DEBUG_PRINTF("activate\n");
         DEBUG_PRINTF("initialized initialACELPSetup 1\n");
-        encoded_frame_queue = cat_ringbuffer_create(ACELP_DUAL_CHAN_FRAME_SIZE * 4);
+        encoded_frame_queue = cat_ringbuffer_create(sizeof(Word16) * ACELP_DUAL_CHAN_FRAME_SIZE * PIPELINE_BUFFER_FRAMES);
         ring_48k_incoming = cat_ringbuffer_create((VST_SampleRate * sizeof(float))); // 1s 48khz
         ring2 = cat_ringbuffer_create(RINGBUFFER_SIZE);
-        pcm_output_buffer = cat_ringbuffer_create(sizeof(float) * ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO);//(8*1024);
+        pcm_output_buffer = cat_ringbuffer_create(sizeof(float) * ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO * PIPELINE_BUFFER_FRAMES);
+		// encoder_old_speech is now a pointer (renamed from a static array); it MUST point
+		// at our backing store before encoder_Init_Coder_Tetra() runs, since that init both
+		// derives the other speech pointers from it and zeroes it. Assigning it after init
+		// (as before) leaves it NULL during init -> NULL deref / crash on load.
+		encoder_old_speech = speech_frameCache;
         /* Initialization of decoder  */
         sdec_Init_Decod_Tetra();
         /* Initialization of the coder */
@@ -429,7 +444,6 @@ CheetahDSP::CheetahDSP(double sampleRate): stopThread(false), threadRunning(fals
         encoder_frame = 0;
         decoder_frame = 0;
 		// custom framesizes
-		encoder_old_speech = speech_frameCache;
 		encoder_new_speech = encoder_old_speech + L_total - L_frame;	/* New speech     */
 		encoder_speech     = encoder_new_speech - L_next;			/* Present frame  */
 		encoder_p_window   = encoder_old_speech + L_total - L_window;	/* For LPC window */
@@ -442,6 +456,15 @@ CheetahDSP::CheetahDSP(double sampleRate): stopThread(false), threadRunning(fals
 		DEBUG_PRINTF("activate 2\n");
 		DEBUG_PRINTF("activated\n");
 	}
+
+    // Start the background decode/upsample thread ONLY after every resource it
+    // touches (ringbuffers, codec state, resamplers) has been created. Spawning
+    // it earlier races the init below and dereferences a garbage resampler_up
+    // pointer -> segfault on load.
+    if (!threadRunning.load(std::memory_order_acquire)) {
+        DEBUG_PRINTF("starting background thread");
+        backgroundThread = std::thread(&CheetahDSP::threadFunction, this);
+    }
 }
 
 CheetahDSP::~CheetahDSP() {
@@ -492,45 +515,25 @@ void CheetahDSP::setParameterValue(uint32_t index, float value) {
   }
 }
 
-void CheetahDSP::corrupt_audio(Word16 *data) {
-	float pVolume = newParams[paramVolume];
-	float pCorrMode = newParams[paramCorruptionMode];
-	float pCorrInt = newParams[paramCorruptionIntensity];
-	float pCorrMag = newParams[paramCorruptionMagnitude];
-	float pCodecType = newParams[paramCodecType];
-	{ // Intermediary Layer
-		if (round(pCodecType == 1)) {
-			if (round(pCorrMode) == 1) {
-				corrupt_by_wrong_interleave(data, TS7k2_size);
-			}
-			if (round(pCorrMode) == 2) {
-				corrupt_by_overflow(data, TS7k2_size);
-			}
-			if (round(pCorrMode) == 3) {
-				bit_desync_shift_left_Word16(encoder_Interleaved_coded_array, TS7k2_size);
-				// int r = rand() % 100;
-				// if (r < midiEnergyMap[70]) {
-				// 	// allowFrameWrite = 0;
-				// }
-			} else {
-				// allowFrameWrite = allowFrameWrite || 1;
-			}
-			if (round(pCorrMode) == 4) {
-				random_bit_desync_Word16(data, TS7k2_size, pCorrInt, pCorrMag);
-			}
-			if (round(pCorrMode) == 5) {
-				corrupt_bit_flips_Word16(data, TS7k2_size, pCorrInt);
-				// random_bit_desync_Word16(encoder_Interleaved_coded_array, 432, midiEnergyMap[70], midiEnergyMap[65]);
-			}
-			if (round(pCorrMode) == 6) {
-				encoder_first_pass = true;
-				decoder_first_pass = true;
-			}
-		}
-	}
+// Build the current corruption settings from the live parameters. Intensity
+// and magnitude are normalized 0..1 (rate / depth). See CorruptMode for how the
+// mode maps to a parameter-domain (musical) or bitstream-domain (extreme) stage.
+CorruptCfg CheetahDSP::corruptCfg() const {
+	CorruptCfg cfg;
+	cfg.mode      = (int)lround(newParams[paramCorruptionMode]);
+	cfg.intensity = newParams[paramCorruptionIntensity] / 100.0f;
+	cfg.magnitude = newParams[paramCorruptionMagnitude] / 100.0f;
+	if (cfg.intensity < 0.0f) cfg.intensity = 0.0f; else if (cfg.intensity > 1.0f) cfg.intensity = 1.0f;
+	if (cfg.magnitude < 0.0f) cfg.magnitude = 0.0f; else if (cfg.magnitude > 1.0f) cfg.magnitude = 1.0f;
+	return cfg;
 }
 void CheetahDSP::process_buff_ring1_audio(size_t nframes) {
-	const int samples48kSize = ACELP_DUAL_CHAN_AUDIO_SIZE * 6;
+	// One codec frame consumes ACELP_DUAL_CHAN_AUDIO_SIZE samples at TETRA_SampleRate,
+	// which is UPSAMPLE_RATIO (host/tetra) samples at the host rate. This MUST match the
+	// resampler ratio: if we read more than the downsampler consumes for one 960-sample
+	// output frame, the surplus is discarded every iteration and half the audio is dropped
+	// (choppy output / underruns). 48000/16000 = 3, not the old 8kHz-era value of 6.
+	const int samples48kSize = ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO;
 
 	float samples48k[samples48kSize];
 	float down_out[ACELP_DUAL_CHAN_AUDIO_SIZE];
@@ -550,9 +553,10 @@ void CheetahDSP::process_buff_ring1_audio(size_t nframes) {
 		static Word16 channelFrameOutput[ACELP_DUAL_CHAN_FRAME_SIZE];
 		// downsample_6x(samples48k, down_out, samples48kSize);
 		// print_float_hex(down_out, 480);
-		encode_acelp(down_out, channelFrameOutput);
+		const CorruptCfg cfg = corruptCfg();
+		encode_acelp(down_out, channelFrameOutput, cfg);   // param-domain corruption happens inside
 		// print_word16_hex(channelFrameOutput, 432);
-		corrupt_audio(channelFrameOutput);
+		corrupt_apply_bitstream(channelFrameOutput, TS7k2_size, cfg);  // bitstream-domain corruption
 		if (callback != nullptr) {
 			callback->onVocoderFrame(channelFrameOutput);
 		}
@@ -574,16 +578,27 @@ void CheetahDSP::run(const float** inputs, float** outputs, uint32_t frames) {
     const float* const in = inputs[0];
     float* const out = outputs[0];
 	//
+	// Realtime audio thread: ONLY move samples in/out of the lock-free rings.
+	// The expensive codec encode/decode + resampling happens on the background
+	// thread (process_buff_ring1_audio + threadFunction). Doing the ACELP encode
+	// here previously spiked the RT callback every ~60ms and caused xruns/cracks.
 	cat_ringbuffer_write(ring_48k_incoming, (char *)in, frames * sizeof(float));
-	process_buff_ring1_audio(frames);
-	// float monoOutput[frames];
-    // Output: Read from ringbuffer, or fill with silence if underrun
+
+    // Output: read from the ring, or output silence on underrun. Wait until the
+    // background thread has built up OUTPUT_PREBUFFER_FRAMES of slack before we
+    // start playing, so ordinary jitter doesn't immediately drain the ring.
     size_t to_read = sizeof(float) * frames;
-    if (cat_ringbuffer_read_space(pcm_output_buffer) >= to_read) {
+    const size_t prebuffer_bytes =
+        sizeof(float) * ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO * OUTPUT_PREBUFFER_FRAMES;
+    if (!outputPrimed) {
+        if (cat_ringbuffer_read_space(pcm_output_buffer) >= prebuffer_bytes)
+            outputPrimed = true;
+    }
+    if (outputPrimed && cat_ringbuffer_read_space(pcm_output_buffer) >= to_read) {
         cat_ringbuffer_read(pcm_output_buffer, (char *)out, to_read);
 		// DEBUG_PRINTF("output ringbuffer serving %lu samples\n", frames);
     } else {
-        memset(out, 0, to_read); // underrun fallback
+        memset(out, 0, to_read); // underrun fallback (or still pre-buffering)
     }
     // apply gain against all samples
     // for (uint32_t i=0; i < frames; ++i) {
@@ -698,51 +713,63 @@ void CheetahDSP::threadFunction() {
     float decode_buf[ACELP_DUAL_CHAN_AUDIO_SIZE];
     float upsample_buf[ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO];
 	//
-	int has_valid_frame = 1;
+	// Start with no valid frame: wait for the encoder to deliver a real frame
+	// before decoding. Otherwise we'd decode an all-zero / degenerate bitstream
+	// (the hardcoded fuckFrame is the old 432-word size and no longer loads),
+	// which produces garbage or crashes in the TETRA decoder.
+	int has_valid_frame = 0;
 	//
+    // Last fully-upsampled PCM frame, kept so we can conceal a genuine underrun
+    // by repeating audio rather than re-decoding a held bitstream (re-decoding
+    // the same TETRA frame lets the decoder's adaptive state decay to silence,
+    // which produced the ~30ms silence notches at the frame rate).
+    float last_pcm[ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO] = { 0 };
+    int   have_last_pcm = 0;
+
+    const size_t bytes_needed = sizeof(float) * ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO;
+    // Only conceal (repeat the last PCM) when the output ring is about to run
+    // dry — i.e. genuine starvation. Crucially we do NOT decode ahead just to
+    // reach a fill target: the decoder must stay paced 1:1 with the encoder,
+    // otherwise it drains the frame queue and starts repeating frames, gating
+    // the audio at the frame rate.
+    const size_t underrun_bytes = bytes_needed; // < 1 output frame buffered
+
     while (!stopThread.load(std::memory_order_acquire)) {
-        // Try to read a new encoded frame from the queue
-        if (cat_ringbuffer_read_space(encoded_frame_queue) >= sizeof(playback_frame)) {
-            // Read it
-            //size_t read_bytes = 
-			cat_ringbuffer_read(encoded_frame_queue, (char *)playback_frame, sizeof(playback_frame));
-            // DEBUG_PRINTF("RINGBUFFER ENCODEDFRAME QUEUE readbytes=%lu, size %d\n", read_bytes, sizeof(encoded_frame));
-			memcpy(&last_good_frame, &playback_frame, sizeof(playback_frame));
-			// print_word16_hex(encoded_frame, sizeof(encoded_frame));
-			// DEBUG_PRINTF("new nice frame came around");
-            has_valid_frame = 1;
-        } else if (has_valid_frame) {
-            // No new frame: reuse the last good one
-			// DEBUG_PRINTF("reusing old frame");
-            memcpy(&playback_frame, &last_good_frame, sizeof(playback_frame));
-        } else {
-            // No data available yet: silence output or skip
-            // usleep(1000);
-        	std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        // Drain freshly-arrived input and encode it into the frame queue. This
+        // is the heavy ACELP work, kept here on the background thread instead of
+        // in the realtime audio callback (which caused periodic xruns/cracks).
+        process_buff_ring1_audio(0);
+
+        // Need room in the output ring before we produce another frame.
+        if (cat_ringbuffer_write_space(pcm_output_buffer) < bytes_needed) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
             continue;
-        }	
-
-        // Decode and upsample
-		// DEBUG_PRINTF("received frame:\n");
-		// print_word16_hex(playback_frame, 432);
-        decode_acelp(playback_frame, decode_buf);
-        // upsample_6x(decode_buf, upsample_buf, ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO);
-		// --- Upsample 6x ---
-		spx_uint32_t in_len = ACELP_DUAL_CHAN_AUDIO_SIZE;
-		spx_uint32_t out_len = ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO;
-		// memcpy(down_in, in, sizeof(float) * in_len);
-		speex_resampler_process_float(resampler_up, 0, decode_buf, &in_len, upsample_buf, &out_len);
-
-        // Wait until there's enough space to write
-        size_t bytes_needed = sizeof(float) * ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO;
-        while (!stopThread.load(std::memory_order_acquire) && cat_ringbuffer_write_space(pcm_output_buffer) < bytes_needed) {
-        	std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
 
-        // Write the samples to output buffer
-        // size_t wrote_bytes = 
-		cat_ringbuffer_write(pcm_output_buffer, (char *)upsample_buf, bytes_needed);
-		// DEBUG_PRINTF("decoding to %d 48khz samples=%d bytes, wrote %d bytes\n", ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO, bytes_needed, wrote_bytes);
+        if (cat_ringbuffer_read_space(encoded_frame_queue) >= sizeof(playback_frame)) {
+            // A real encoded frame is available: decode it (1:1 with encoder).
+			cat_ringbuffer_read(encoded_frame_queue, (char *)playback_frame, sizeof(playback_frame));
+			memcpy(&last_good_frame, &playback_frame, sizeof(playback_frame));
+            has_valid_frame = 1;
+
+            decode_acelp(playback_frame, decode_buf);
+            spx_uint32_t in_len = ACELP_DUAL_CHAN_AUDIO_SIZE;
+            spx_uint32_t out_len = ACELP_DUAL_CHAN_AUDIO_SIZE * UPSAMPLE_RATIO;
+            speex_resampler_process_float(resampler_up, 0, decode_buf, &in_len, upsample_buf, &out_len);
+
+            memcpy(last_pcm, upsample_buf, bytes_needed);
+            have_last_pcm = 1;
+            cat_ringbuffer_write(pcm_output_buffer, (char *)upsample_buf, bytes_needed);
+        } else if (have_last_pcm &&
+                   cat_ringbuffer_read_space(pcm_output_buffer) < underrun_bytes) {
+            // No fresh frame AND the ring is about to underrun: conceal by
+            // repeating the last decoded PCM frame to avoid an audible gap.
+            cat_ringbuffer_write(pcm_output_buffer, (char *)last_pcm, bytes_needed);
+        } else {
+            // No fresh frame but the ring still has slack: wait for the encoder
+            // to deliver the next real frame instead of running ahead.
+        	std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
 	}
 	//
 	threadRunning.store(false, std::memory_order_release);

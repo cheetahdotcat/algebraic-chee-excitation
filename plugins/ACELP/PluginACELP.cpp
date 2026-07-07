@@ -27,6 +27,7 @@
 #include "PluginACELP.hpp"
 #include "corrupt.hpp"
 #include "debug.h"
+#include "codec_viz.hpp"
 
 // #include <samplerate.h>
 
@@ -279,6 +280,9 @@ void PluginACELP::onVocoderFrame(Word16 *frame) {
       DEBUG_PRINTF("applying corruption %d\n", midiKey, midiEnergyMap[midiKey]);
     }
   }
+  // Publish the final (post-corruption) encoded frame for the UI data-stream
+  // visualization. This is exactly the bitstream that gets decoded.
+  codec_viz_write((const short*)frame);
 }
 void PluginACELP::run(const float** inputs, float** outputs, uint32_t frames, const MidiEvent* midiEvents, uint32_t midiEventCount) {
 	dsp.run(inputs, outputs, frames);

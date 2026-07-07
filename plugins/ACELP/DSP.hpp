@@ -19,22 +19,29 @@
 
 #include "codec/channel.h"
 #include "codec/source.h"
+#include "corrupt.hpp"
 
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define L_frame 240*2
-#define serial_size 138*2
+// NOTE: These are the TETRA codec's NATIVE ("SD") frame sizes. The codec in
+// codec/*.c is hard-wired to L_frame=240 (8kHz, 30ms speech frames); the glue
+// here MUST match it. A previous experiment doubled these to 480/276/864 for a
+// 16kHz build, but the codec itself still only fills 240 samples per frame, so
+// half of every frame came out silent (frame-rate gating). A future selectable
+// 16k/32k "HD" mode should switch these together with an adapted codec path.
+#define L_frame 240
+#define serial_size 138
 #define ana_size 23
 #define prm_size 24
 
 #define dual_serial_size 2*serial_size // 276
 #define s286_size dual_serial_size + 10 // 286
-#define TS7k2_size 432*2
+#define TS7k2_size 432               // TETRA time-slot @7.2kb/s (one channel frame)
 #define TimeSlotBufferSize TS7k2_size*4
 
-#define TETRA_SampleRate 16000
+#define TETRA_SampleRate 8000
 #define VST_SampleRate 48000
 
 #define ACELP_DUAL_CHAN_FRAME_SIZE TS7k2_size // 60ms @ 8kHz
@@ -44,6 +51,12 @@ extern "C" {
 #define ACELP_VOCODER_SAMPLE_COUNT s286_size
 #define UPSAMPLE_RATIO VST_SampleRate/TETRA_SampleRate
 #define DOWNSAMPLE_RATIO UPSAMPLE_RATIO
+
+// How many whole codec frames of slack to keep in the pipeline ring buffers,
+// and how many to accumulate in the output ring before playback begins. More
+// frames = smoother under jitter but higher latency (each frame is 60ms).
+#define PIPELINE_BUFFER_FRAMES 8
+#define OUTPUT_PREBUFFER_FRAMES 3
 #define UPSAMPLED_FRAME_SIZE (ACELP_FRAME_SIZE * UPSAMPLE_RATIO)
 
 #ifdef __cplusplus
@@ -99,6 +112,12 @@ private:
   SpeexResamplerState *resampler_up;
   double          sampleRate;
 
+  // Output pre-buffering: the decode/upsample runs on a background thread and
+  // delivers audio in whole 60ms codec frames, so the output ring must hold a
+  // few frames of slack and be filled before playback starts, otherwise normal
+  // scheduling jitter underruns the ring and produces clicks/gaps.
+  bool outputPrimed = false;
+
 
   float oldParams[paramCount];
   float newParams[paramCount];
@@ -113,7 +132,7 @@ private:
   float late_in_buffer[2][BUFFER_SIZE];
   float late_out_buffer[2][BUFFER_SIZE];
 
-  void corrupt_audio(Word16 *data);
+  CorruptCfg corruptCfg() const;
 };
 
 #endif

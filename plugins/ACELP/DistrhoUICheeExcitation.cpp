@@ -17,6 +17,16 @@
 
 #include "PluginACELP.hpp"
 #include "DistrhoUICheeExcitation.hpp"
+#include "codec_viz.hpp"
+#include <cmath>
+
+// Encoded-frame data-stream display panel (the empty screen area in the art).
+#define VIZ_X 32
+#define VIZ_Y 145
+#define VIZ_W 576
+#define VIZ_H 278
+#define VIZ_COLS 36   // 36 x 12 = 432 = CODEC_VIZ_WORDS
+#define VIZ_ROWS 12
 
 #define UI_OFFSET_TYPE_X 108
 #define UI_OFFSET_CORR_MAG_X 246
@@ -105,7 +115,7 @@ DistrhoUICheeExcitation::DistrhoUICheeExcitation()
     fKnobCorrMode = new ImageKnob(this, knobImage, ImageKnob::Vertical);
     fKnobCorrMode->setId(CheetahDSP::paramCorruptionMode);
     fKnobCorrMode->setAbsolutePos(UI_OFFSET_CORR_MAG_X, UI_OFFSET_VOLUME_Y);
-    fKnobCorrMode->setRange(0.0f, 7.0f);
+    fKnobCorrMode->setRange(0.0f, 10.0f);
     fKnobCorrMode->setDefault(0.0f);
     fKnobCorrMode->setValue(0.0f);
     fKnobCorrMode->setRotationAngle(305);
@@ -129,8 +139,8 @@ DistrhoUICheeExcitation::DistrhoUICheeExcitation()
     fButtonAbout->setAbsolutePos(535, 0);
     fButtonAbout->setCallback(this);
 
-    // neko animation
-    addIdleCallback(this, 120);
+    // repaint timer (~30fps) to animate the data-stream visualization
+    addIdleCallback(this, 33);
 
     // // Spectrogram
     // rectDisplay.setPos  ( 40, 126 );
@@ -260,6 +270,47 @@ void DistrhoUICheeExcitation::onDisplay() {
 
   fImgBackground.draw(context);
   nanoText.beginFrame ( this );
+
+  // --- Encoded data-stream visualization ---------------------------------
+  // Render the latest 432-word TETRA channel frame as a live bitfield grid:
+  // one cell per coded word, brightness = magnitude, hue = sign (the channel
+  // coder emits soft +/- symbols). It updates every UI repaint.
+  {
+    short vf[CODEC_VIZ_WORDS];
+    codec_viz_read(vf);
+    static short prevf[CODEC_VIZ_WORDS] = { 0 }; // previous frame, for change highlight
+    const float cw = (float)VIZ_W / VIZ_COLS;
+    const float ch = (float)VIZ_H / VIZ_ROWS;
+    for (int i = 0; i < CODEC_VIZ_WORDS; ++i) {
+      const int   col = i % VIZ_COLS;
+      const int   row = i / VIZ_COLS;
+      const int   v   = (int)vf[i];
+      const float mag = std::fmin(1.0f, std::fabs((float)v) / 32768.0f);
+      int r, g, b;
+      if (v >= 0) {           // positive -> green phosphor
+        r = (int)(mag * 40.0f);
+        g = (int)(45.0f + mag * 210.0f);
+        b = (int)(mag * 80.0f);
+      } else {                // negative -> amber
+        r = (int)(60.0f + mag * 195.0f);
+        g = (int)(40.0f + mag * 120.0f);
+        b = 0;
+      }
+      // Highlight change since last frame (corruption / signal activity) in red.
+      const float chg = std::fmin(1.0f, std::fabs((float)(v - (int)prevf[i])) / 12000.0f);
+      r = (int)std::fmin(255.0f, r + chg * 220.0f);
+      g = (int)(g * (1.0f - 0.5f * chg));
+      b = (int)(b * (1.0f - 0.5f * chg));
+      nanoText.beginPath();
+      nanoText.rect(VIZ_X + col * cw + 1.0f, VIZ_Y + row * ch + 1.0f,
+                    cw - 2.0f, ch - 2.0f);
+      nanoText.fillColor(r, g, b, 255);
+      nanoText.fill();
+    }
+    std::memcpy(prevf, vf, sizeof(prevf));
+  }
+  // -----------------------------------------------------------------------
+
   nanoText.fontSize ( 15 );
   nanoText.textAlign ( NanoVG::ALIGN_CENTER|NanoVG::ALIGN_MIDDLE );
 
