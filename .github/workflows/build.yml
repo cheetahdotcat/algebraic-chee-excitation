@@ -1,0 +1,59 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libgl1-mesa-dev libx11-dev libxext-dev \
+            libxrandr-dev libxcursor-dev libdbus-1-dev libjack-jackd2-dev
+      - name: Build
+        run: make -j"$(nproc)"
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp -r bin/algebraic-chee-excitation.vst3 bin/algebraic-chee-excitation-vst.so dist/
+          [ -f bin/algebraic-chee-excitation ] && cp bin/algebraic-chee-excitation dist/ || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: algebraic-chee-excitation-linux-x86_64
+          path: dist
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build (universal x86_64 + arm64, macOS 10.15+)
+        # DPF's macos-universal target runs `make all` with both -arch flags
+        run: make -j"$(sysctl -n hw.ncpu)" macos-universal-10.15
+      - name: Ad-hoc sign
+        # Apple Silicon refuses unsigned arm64 code; an ad-hoc signature is
+        # enough to load locally. Distribution outside your own machines
+        # still needs a Developer ID signature + notarization.
+        run: |
+          for b in bin/*.vst3 bin/*.vst bin/*.clap; do
+            [ -e "$b" ] && codesign --force --deep --sign - "$b"
+          done
+          ls -la bin
+      - name: Package
+        run: |
+          mkdir -p dist
+          for b in bin/*.vst3 bin/*.vst bin/*.clap; do [ -e "$b" ] && cp -R "$b" dist/; done
+          ditto -c -k --keepParent dist algebraic-chee-excitation-macos-universal.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: algebraic-chee-excitation-macos-universal
+          path: algebraic-chee-excitation-macos-universal.zip

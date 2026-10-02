@@ -33,6 +33,9 @@ FILES_COMMON  = DSP.cpp \
 	codec/scod_tetp.c		codec/sdec_tetp.c	\
 	codec/fbas_tet.c		codec/fexp_tet.c	\
 	codec/fmat_tet.c		codec/tetra_op.c	\
+	hdacelp/hd_acelp.cpp	hdacelp/hd_lpc.cpp	hdacelp/tp_channel.cpp	\
+	net/net_link.cpp	\
+	speex/ace_resampler.c	\
 
 FILES_DSP = $(FILES_COMMON) \
 	PluginACELP.cpp
@@ -53,7 +56,8 @@ SKIP_NATIVE_AUDIO_FALLBACK = true
 USE_FILE_BROWSER = false
 # Meeow
 UI_TYPE = generic
-CXXFLAGS += -lspeexdsp -lpthread -g -O0
+# Release builds use DPF's optimization flags; `make DEBUG=true` for -O0 -g.
+LDFLAGS += -lpthread
 include 	../../dpf/Makefile.plugins.mk
 
 # --------------------------------------------------------------
