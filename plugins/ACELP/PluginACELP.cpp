@@ -27,7 +27,6 @@
 #include "PluginACELP.hpp"
 #include "corrupt.hpp"
 #include "debug.h"
-#include "codec_viz.hpp"
 
 // #include <samplerate.h>
 
@@ -36,21 +35,17 @@ START_NAMESPACE_DISTRHO
 // -----------------------------------------------------------------------
 
 PluginACELP::PluginACELP()
-    : Plugin(paramCount, 0, 0), dsp(getSampleRate())  // paramCount param(s), presetCount program(s), 0 states
+    : Plugin(paramCount, 0, 1), dsp(getSampleRate())  // paramCount param(s), 0 programs, 1 state (cc_map)
 {
 
     // smooth_gain = new CParamSmooth(20.0f, getSampleRate());
 
-	for (int midiKey = 0; midiKey < 255; midiKey++) {
-		midiEnergyMap[midiKey] = 0;
-	}
 	for (unsigned p = 0; p < paramCount; ++p) {
 		Parameter param;
 		initParameter(p, param);
 		setParameterValue(p, param.ranges.def);
 	}
-  for (int i = 0; i < 128; i++) hex_string[i] = 0;
-  dsp.setCallback(this);
+  for (int cc = 0; cc < 128; cc++) ccMap[cc].store(-1, std::memory_order_relaxed);
   // reset
   deactivate();
 }
@@ -72,6 +67,13 @@ void PluginACELP::initParameter(uint32_t index, Parameter& parameter) {
     parameter.ranges.def = banks[DEFAULT_BANK].presets[DEFAULT_PRESET].params[index];
     parameter.ranges.max = PARAMS[index].range_max;
     parameter.unit       = PARAMS[index].unit;
+    if (index == paramCodecType || index == paramCorruptionMode || index == paramLpStage || index == paramHdMath ||
+        index == paramCodecSplit || index == paramDecMath || index == paramAlgoSplit || index == paramFec ||
+        index == paramCorruptTarget || index == paramGainVq || index == paramDecGainVq ||
+        index == paramNetMode || index == paramNetChannel)
+      parameter.hints |= kParameterIsInteger;
+    if (index == paramVolume)
+      parameter.hints |= kParameterIsHidden; // no-op, kept for index stability
   }
 }
 
@@ -109,89 +111,53 @@ void PluginACELP::setParameterValue(uint32_t index, float value) {
   dsp.setParameterValue(index, value);
 }
 
+// One state: the MIDI CC map, "cc:param,cc:param,..." (saved with the session).
 void PluginACELP::initState(uint32_t index, State& state) {
-  switch (index) {
-    case 0:
-        state.key = "top-left";
-        state.label = "Top Left";
-        break;
-    case 1:
-        state.key = "top-center";
-        state.label = "Top Center";
-        break;
-    case 2:
-        state.key = "top-right";
-        state.label = "Top Right";
-        break;
-    case 3:
-        state.key = "middle-left";
-        state.label = "Middle Left";
-        break;
-    case 4:
-        state.key = "middle-center";
-        state.label = "Middle Center";
-        break;
-    case 5:
-        state.key = "middle-right";
-        state.label = "Middle Right";
-        break;
-    case 6:
-        state.key = "bottom-left";
-        state.label = "Bottom Left";
-        break;
-    case 7:
-        state.key = "bottom-center";
-        state.label = "Bottom Center";
-        break;
-    case 8:
-        state.key = "bottom-right";
-        state.label = "Bottom Right";
-        break;
+  if (index == 0) {
+    state.key = "cc_map";
+    state.label = "MIDI CC map";
+    state.defaultValue = "";
+    state.hints = kStateIsHostWritable;
   }
-  state.hints = kStateIsHostWritable;
-  state.defaultValue = "false";
 }
-void PluginACELP::setState(const char* key, const char* value) {
-  // if (std::strcmp(key, "preset") == 0) {
-  //   for (int b = 0; b < NUM_BANKS; b++) {
-  //     for (int p = 0; p < PRESETS_PER_BANK; p++) {
-  //       if (std::strcmp(value, banks[b].presets[p].name) == 0) {
-  //         bank = b;
-  //         preset = p;
 
-  //         // backward compatibility
-  //       //   setParameterValue(paramDecay, banks[b].presets[p].params[paramDecay]);
-  //       }
-  //     }
-  //   }
-  // }
+void PluginACELP::setState(const char* key, const char* value) {
+  if (std::strcmp(key, "cc_map") != 0) return;
+  for (int cc = 0; cc < 128; cc++) ccMap[cc].store(-1, std::memory_order_relaxed);
+  const char* p = value;
+  while (p != nullptr && *p != '\0') {
+    int cc = -1, param = -1;
+    if (std::sscanf(p, "%d:%d", &cc, &param) == 2 && cc >= 0 && cc < 128 && param > 0 && param < paramCount)
+      ccMap[cc].store((int8_t)param, std::memory_order_relaxed);
+    p = std::strchr(p, ',');
+    if (p != nullptr) ++p;
+  }
+  ccMapGen.fetch_add(1, std::memory_order_release);
 }
 
 String PluginACELP::getState(const char* key) const {
-    static const String sTrue ("true");
-    static const String sFalse("false");
+  if (std::strcmp(key, "cc_map") != 0) return String();
+  char buf[128 * 8 + 1];
+  int n = 0;
+  buf[0] = '\0';
+  for (int cc = 0; cc < 128; cc++) {
+    const int param = ccMap[cc].load(std::memory_order_relaxed);
+    if (param >= 0)
+      n += std::snprintf(buf + n, sizeof(buf) - n, "%s%d:%d", n ? "," : "", cc, param);
+  }
+  return String(buf);
+}
 
-    // // check which block changed
-    // /**/ if (std::strcmp(key, "top-left") == 0)
-    //     return fParamGrid[0] ? sTrue : sFalse;
-    // else if (std::strcmp(key, "top-center") == 0)
-    //     return fParamGrid[1] ? sTrue : sFalse;
-    // else if (std::strcmp(key, "top-right") == 0)
-    //     return fParamGrid[2] ? sTrue : sFalse;
-    // else if (std::strcmp(key, "middle-left") == 0)
-    //     return fParamGrid[3] ? sTrue : sFalse;
-    // else if (std::strcmp(key, "middle-center") == 0)
-    //     return fParamGrid[4] ? sTrue : sFalse;
-    // else if (std::strcmp(key, "middle-right") == 0)
-    //     return fParamGrid[5] ? sTrue : sFalse;
-    // else if (std::strcmp(key, "bottom-left") == 0)
-    //     return fParamGrid[6] ? sTrue : sFalse;
-    // else if (std::strcmp(key, "bottom-center") == 0)
-    //     return fParamGrid[7] ? sTrue : sFalse;
-    // else if (std::strcmp(key, "bottom-right") == 0)
-    //     return fParamGrid[8] ? sTrue : sFalse;
+int PluginACELP::ccForParam(uint32_t param) const {
+  for (int cc = 0; cc < 128; cc++)
+    if (ccMap[cc].load(std::memory_order_relaxed) == (int)param) return cc;
+  return -1;
+}
 
-    return sFalse;
+void PluginACELP::clearCcForParam(uint32_t param) {
+  for (int cc = 0; cc < 128; cc++)
+    if (ccMap[cc].load(std::memory_order_relaxed) == (int)param) ccMap[cc].store(-1, std::memory_order_relaxed);
+  ccMapGen.fetch_add(1, std::memory_order_release);
 }
 
 /**
@@ -215,105 +181,55 @@ void PluginACELP::activate() {
 }
 void PluginACELP::deactivate()  {
 }
-//
-void shorts_to_hex_string(const Word16 *shorts, size_t count, char *output) {
-    for (size_t i = 0; i < count; ++i) {
-        sprintf(output + i * 4, "%04X", (Word16)shorts[i]);
-    }
-    output[count * 4] = '\0';  // Null-terminate
-}
-// 432
-void PluginACELP::onVocoderFrame(Word16 *frame) {
-  // DEBUG_PRINTF("ONFRAME 1\n");
-  // shorts_to_hex_string(frame, 432, hex_string);
-  // DEBUG_PRINTF("ONFRAME 2\n");
-  // // updateStateValue("codec_frame", hex_string);
-  // DEBUG_PRINTF("ONFRAME 3\n");
-	float pVolume = dsp.getParameterValue(paramVolume);
-	float pCorrMode = dsp.getParameterValue(paramCorruptionMode);
-	float pCorrInt = dsp.getParameterValue(paramCorruptionIntensity);
-	float pCorrMag = dsp.getParameterValue(paramCorruptionMagnitude);
-	float pCodecType = dsp.getParameterValue(paramCodecType);
-  //
-  {
-    if (midiEnergyMap[60]>0) {
-      corrupt_by_wrong_interleave(frame, 432);
-    }
-    if (midiEnergyMap[61]>0) {
-      corrupt_by_overflow(frame, 432);
-    }
-    if (midiEnergyMap[62]>0) {
-      bit_desync_shift_left_Word16(frame, 23);
-      // int r = rand() % 100;
-      // if (r < midiEnergyMap[70]) {
-      // 	// allowFrameWrite = 0;
-      // }
-    } else {
-      // allowFrameWrite = allowFrameWrite || 1;
-    }
-    if (midiEnergyMap[63]>0) {
-      random_bit_desync_Word16(frame, 432, pCorrInt, pCorrMag);
-    }
-    if (midiEnergyMap[64]>0) {
-      corrupt_bit_flips_Word16(frame, 432, pCorrInt);
-      // random_bit_desync_Word16(encoder_Interleaved_coded_array, 432, midiEnergyMap[70], midiEnergyMap[65]);
-    }
-  }
-  //
-  for (int midiKey = 0; midiKey < 255; midiKey++) {
-    if (midiEnergyMap[midiKey] > 0) {
-      if (round(pCorrMode) == 1) {
-        frame[ midiKey ] = midiEnergyMap[midiKey];
-      }
-      if (round(pCorrMode) == 2) {
-        frame[ midiKey ] -= pCorrMag;
-      }
-      if (round(pCorrMode) == 3) {
-        frame[ midiKey ] += pCorrMag;
-      }
-      if (round(pCorrMode) == 4) {
-        frame[ midiKey ] *= pCorrMag;
-      }
-      if (round(pCorrMode) == 5) {
-        frame[ midiKey ] /= pCorrMag;
-      }
-      DEBUG_PRINTF("applying corruption %d\n", midiKey, midiEnergyMap[midiKey]);
-    }
-  }
-  // Publish the final (post-corruption) encoded frame for the UI data-stream
-  // visualization. This is exactly the bitstream that gets decoded.
-  codec_viz_write((const short*)frame);
-}
+// MIDI: a chromatic block of 12 keys from MIDI note 48 triggers corruption
+// while held (see CheetahDSP::MIDI_CORRUPT_BASE_NOTE); all other notes are
+// ignored. Any channel.
 void PluginACELP::run(const float** inputs, float** outputs, uint32_t frames, const MidiEvent* midiEvents, uint32_t midiEventCount) {
-	dsp.run(inputs, outputs, frames);
-  for (int i = 0; i < midiEventCount; ++i) {
-    MidiEvent event = midiEvents[i];
-    uint8_t eventType = event.data[0];
-    uint8_t eventKey = event.data[1];
-    uint8_t eventParam = event.data[2];
-    // printf("processing midi: %d- %d,%d,%d\n", i, eventType, eventKey, eventParam);
-    switch (eventType) {
-      case 128: // release
-        midiEnergyMap[eventKey] = eventParam;
-        break;
-      case 144: // attack
-        midiEnergyMap[eventKey] = eventParam;
-        break;
-      case 176: // knob
-        midiEnergyMap[eventKey] = eventParam;
-        break;
-      case 129: // pad1
-        midiEnergyMap[eventKey] = eventParam;
-        break;
-      case 145: // pad2
-        midiEnergyMap[eventKey] = eventParam;
-        break;
-      case 209: // pad3
-        midiEnergyMap[eventKey] = eventParam;
-        break;
-    }			
-		// DEBUG_PRINTF("midi %d %d %d\n", eventType, eventKey, eventParam);
+  for (uint32_t i = 0; i < midiEventCount; ++i) {
+    const MidiEvent& event = midiEvents[i];
+    if (event.size < 2 || event.size > MidiEvent::kDataSize) continue;
+    const uint8_t status = event.data[0] & 0xF0;
+    const uint8_t d1 = event.data[1];
+    const uint8_t d2 = event.size > 2 ? event.data[2] : 0; // channel pressure is 2 bytes
+    if (status == 0x90 || status == 0x80) {
+      // note-off (or note-on with velocity 0) always releases; the release
+      // velocity is ignored
+      const int key = (int)d1 - CheetahDSP::MIDI_CORRUPT_BASE_NOTE;
+      if (key >= 0 && key < CheetahDSP::MIDI_CORRUPT_KEYS) {
+        if (status == 0x90 && d2 > 0) dsp.midiCorruptNoteOn(key, d2);
+        else                          dsp.midiCorruptNoteOff(key);
+      }
+    } else if (status == 0xD0) {
+      dsp.setMidiCorruptPressure(d1);           // channel aftertouch
+    } else if (status == 0xA0) {
+      const int key = (int)d1 - CheetahDSP::MIDI_CORRUPT_BASE_NOTE;
+      if (key >= 0 && key < CheetahDSP::MIDI_CORRUPT_KEYS)
+        dsp.setMidiCorruptPressure(d2);         // poly aftertouch on a corruption key
+    } else if (status == 0xB0 && (d1 == 120 || d1 == 123)) {
+      dsp.clearMidiCorruptKeys(); // All Sound Off / All Notes Off
+    } else if (status == 0xB0 && d1 < 120) {
+      // MIDI learn: the next CC binds to the armed parameter (one CC per parameter)
+      const int armed = learnArmed.exchange(-1, std::memory_order_acq_rel);
+      if (armed > 0) {
+        for (int cc = 0; cc < 128; cc++)
+          if (ccMap[cc].load(std::memory_order_relaxed) == armed) ccMap[cc].store(-1, std::memory_order_relaxed);
+        ccMap[d1].store((int8_t)armed, std::memory_order_relaxed);
+        ccMapGen.fetch_add(1, std::memory_order_release);
+      }
+      const int param = ccMap[d1].load(std::memory_order_relaxed);
+      if (param > 0 && param < paramCount) {
+        float v = PARAMS[param].range_min + (PARAMS[param].range_max - PARAMS[param].range_min) * (d2 / 127.0f);
+        if (param == paramCodecType || param == paramCorruptionMode || param == paramLpStage || param == paramHdMath ||
+            param == paramCodecSplit || param == paramDecMath || param == paramAlgoSplit || param == paramFec ||
+            param == paramCorruptTarget || param == paramGainVq || param == paramDecGainVq ||
+            param == paramNetMode || param == paramNetChannel)
+          v = std::round(v);
+        dsp.setParameterValue(param, v);
+        requestParameterValueChange(param, v); // host + UI follow
+      }
     }
+  }
+  dsp.run(inputs, outputs, frames);
 }
 
 // -----------------------------------------------------------------------
