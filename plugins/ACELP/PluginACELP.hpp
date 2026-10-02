@@ -54,7 +54,7 @@ START_NAMESPACE_DISTRHO
 // -----------------------------------------------------------------------
 
 
-class PluginACELP : public Plugin, CheetahDSP::Callback {
+class PluginACELP : public Plugin {
 public:
 
     PluginACELP();
@@ -137,18 +137,27 @@ protected:
     void run(const float**, float** outputs, uint32_t frames,
              const MidiEvent* midiEvents, uint32_t midiEventCount) override;
 
-    void onVocoderFrame(Word16 *frame) override;
 
     // -------------------------------------------------------------------
 
+public:
+    // --- accessed by the UI through DPF direct access ----------------------
+    CheetahDSP& getDSP() noexcept { return dsp; }
+
+    // MIDI CC learn. learnArmed: parameter waiting for a CC (-1 = none).
+    // ccMap[cc]: mapped parameter (-1 = none). ccMapGen bumps on any change.
+    std::atomic<int> learnArmed{-1};
+    std::atomic<int8_t> ccMap[128];
+    std::atomic<uint32_t> ccMapGen{0};
+    int  ccForParam(uint32_t param) const;
+    void clearCcForParam(uint32_t param);
+
 private:
-    int midiEnergyMap[255];
 
     CheetahDSP dsp;
     int bank;
     int preset;
 
-    char hex_string[128];
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginACELP)
 };
